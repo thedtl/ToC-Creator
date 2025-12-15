@@ -278,13 +278,46 @@
             margin-bottom: 10px;
         }
         
-        #ocr-preview {
-            max-width: 100%;
-            max-height: 300px;
+        #ocr-previews {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        
+        .ocr-preview-item {
+            position: relative;
+        }
+        
+        .ocr-preview-item img {
+            max-width: 150px;
+            max-height: 200px;
             border: 1px solid #ddd;
             border-radius: 4px;
             display: block;
-            margin-bottom: 10px;
+        }
+        
+        .ocr-preview-item .remove-btn {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            background: #e74c3c;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            cursor: pointer;
+            font-size: 14px;
+            line-height: 24px;
+            padding: 0;
+        }
+        
+        .ocr-preview-item .page-num {
+            text-align: center;
+            font-size: 12px;
+            color: #666;
+            margin-top: 4px;
         }
         
         #ocr-status {
@@ -377,14 +410,18 @@
         </p>
         
         <div id="ocr-section" style="margin-bottom: 15px;">
-            <label>Screenshot of Table of Contents:</label>
+            <label>Screenshot(s) of Table of Contents:</label>
             <div class="ocr-input-area" id="ocr-drop-zone">
-                <input type="file" id="toc-image" accept="image/*" style="display: none;">
-                <p>Click to select image, drag & drop, or paste (Ctrl/Cmd+V)</p>
+                <input type="file" id="toc-image" accept="image/*" multiple style="display: none;">
+                <p>Click to select image(s), drag & drop, or paste (Ctrl/Cmd+V)<br><small>You can add multiple images for multi-page ToCs</small></p>
             </div>
             <div id="ocr-preview-container" class="hidden">
-                <img id="ocr-preview" src="" alt="ToC Screenshot">
-                <button onclick="runOcr()" class="success" id="ocr-btn">🔍 Extract Text from Image</button>
+                <div id="ocr-previews"></div>
+                <div class="button-row">
+                    <button onclick="addMoreImages()" class="secondary">+ Add More Images</button>
+                    <button onclick="clearImages()" class="secondary">Clear All</button>
+                    <button onclick="runOcr()" class="success" id="ocr-btn">🔍 Extract Text from Images</button>
+                </div>
             </div>
             <div id="ocr-status" class="hidden"></div>
         </div>
@@ -435,7 +472,7 @@ Appendix 203"></textarea>
         let currentPreviewPage = 1;
         let processedPdfBytes = null;
         let originalFilename = '';
-        let ocrImageData = null;
+        let ocrImages = []; // Array of image data URLs
         
         // Set up OCR drop zone
         const dropZone = document.getElementById('ocr-drop-zone');
@@ -456,13 +493,13 @@ Appendix 203"></textarea>
             e.preventDefault();
             dropZone.classList.remove('dragover');
             if (e.dataTransfer.files.length > 0) {
-                handleOcrImage(e.dataTransfer.files[0]);
+                handleOcrImages(e.dataTransfer.files);
             }
         });
         
         tocImageInput.addEventListener('change', (e) => {
             if (e.target.files.length > 0) {
-                handleOcrImage(e.target.files[0]);
+                handleOcrImages(e.target.files);
             }
         });
         
@@ -473,31 +510,66 @@ Appendix 203"></textarea>
                 if (item.type.startsWith('image/')) {
                     e.preventDefault();
                     const file = item.getAsFile();
-                    handleOcrImage(file);
+                    handleOcrImages([file]);
                     break;
                 }
             }
         });
         
-        function handleOcrImage(file) {
-            if (!file.type.startsWith('image/')) {
-                alert('Please select an image file');
-                return;
+        function handleOcrImages(files) {
+            for (const file of files) {
+                if (!file.type.startsWith('image/')) continue;
+                
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    ocrImages.push(e.target.result);
+                    updateOcrPreviews();
+                };
+                reader.readAsDataURL(file);
             }
+        }
+        
+        function updateOcrPreviews() {
+            const container = document.getElementById('ocr-previews');
+            container.innerHTML = '';
             
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                ocrImageData = e.target.result;
-                document.getElementById('ocr-preview').src = ocrImageData;
+            ocrImages.forEach((imgData, index) => {
+                const div = document.createElement('div');
+                div.className = 'ocr-preview-item';
+                div.innerHTML = `
+                    <button class="remove-btn" onclick="removeImage(${index})">✕</button>
+                    <img src="${imgData}" alt="ToC page ${index + 1}">
+                    <div class="page-num">Page ${index + 1}</div>
+                `;
+                container.appendChild(div);
+            });
+            
+            if (ocrImages.length > 0) {
                 document.getElementById('ocr-preview-container').classList.remove('hidden');
                 document.getElementById('ocr-drop-zone').classList.add('hidden');
-            };
-            reader.readAsDataURL(file);
+            } else {
+                document.getElementById('ocr-preview-container').classList.add('hidden');
+                document.getElementById('ocr-drop-zone').classList.remove('hidden');
+            }
+        }
+        
+        function removeImage(index) {
+            ocrImages.splice(index, 1);
+            updateOcrPreviews();
+        }
+        
+        function addMoreImages() {
+            tocImageInput.click();
+        }
+        
+        function clearImages() {
+            ocrImages = [];
+            updateOcrPreviews();
         }
         
         async function runOcr() {
-            if (!ocrImageData) {
-                alert('Please select an image first');
+            if (ocrImages.length === 0) {
+                alert('Please select at least one image first');
                 return;
             }
             
@@ -505,34 +577,39 @@ Appendix 203"></textarea>
             const status = document.getElementById('ocr-status');
             
             btn.disabled = true;
-            btn.textContent = 'Processing...';
             status.className = 'processing';
             status.classList.remove('hidden');
             status.textContent = 'Initializing OCR engine...';
             
             try {
-                const result = await Tesseract.recognize(
-                    ocrImageData,
-                    'eng',
-                    {
-                        logger: m => {
-                            if (m.status === 'recognizing text') {
-                                status.textContent = `Recognizing text: ${Math.round(m.progress * 100)}%`;
+                let allText = '';
+                
+                for (let i = 0; i < ocrImages.length; i++) {
+                    status.textContent = `Processing image ${i + 1} of ${ocrImages.length}...`;
+                    
+                    const result = await Tesseract.recognize(
+                        ocrImages[i],
+                        'eng',
+                        {
+                            logger: m => {
+                                if (m.status === 'recognizing text') {
+                                    status.textContent = `Image ${i + 1}/${ocrImages.length}: ${Math.round(m.progress * 100)}%`;
+                                }
                             }
                         }
-                    }
-                );
+                    );
+                    
+                    allText += result.data.text + '\n';
+                }
                 
-                const text = result.data.text;
-                document.getElementById('toc-paste').value = text;
+                document.getElementById('toc-paste').value = allText.trim();
                 
                 status.className = 'success';
-                status.textContent = 'Text extracted! Review and edit if needed, then click "Parse ToC"';
+                status.textContent = `Text extracted from ${ocrImages.length} image(s)! Review and edit if needed, then click "Parse ToC"`;
                 
-                // Reset image input for next use
-                document.getElementById('ocr-preview-container').classList.add('hidden');
-                document.getElementById('ocr-drop-zone').classList.remove('hidden');
-                ocrImageData = null;
+                // Reset for next use
+                ocrImages = [];
+                updateOcrPreviews();
                 
             } catch (err) {
                 status.className = 'error';
@@ -540,7 +617,6 @@ Appendix 203"></textarea>
             }
             
             btn.disabled = false;
-            btn.textContent = '🔍 Extract Text from Image';
         }
         
         // File upload handler

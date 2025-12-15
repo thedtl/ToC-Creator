@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF ToC & Page Number Tool</title>
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+            color: #333;
+        }
+        
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .card h2 {
+            margin-top: 0;
+            color: #2c3e50;
+            font-size: 1.2em;
+        }
+        
+        .step-number {
+            display: inline-block;
+            width: 28px;
+            height: 28px;
+            background: #3498db;
+            color: white;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 28px;
+            margin-right: 10px;
+            font-weight: bold;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+        
+        input[type="file"],
+        input[type="number"],
+        input[type="text"],
+        select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+        
+        input[type="file"] {
+            padding: 8px;
+            background: #f9f9f9;
+        }
+        
+        button {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+        
+        button:hover {
+            background: #2980b9;
+        }
+        
+        button:disabled {
+            background: #bdc3c7;
+            cursor: not-allowed;
+        }
+        
+        button.secondary {
+            background: #95a5a6;
+        }
+        
+        button.secondary:hover {
+            background: #7f8c8d;
+        }
+        
+        button.success {
+            background: #27ae60;
+        }
+        
+        button.success:hover {
+            background: #229954;
+        }
+        
+        button.danger {
+            background: #e74c3c;
+            padding: 8px 12px;
+        }
+        
+        button.danger:hover {
+            background: #c0392b;
+        }
+        
+        .chapter-row {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 10px;
+            padding: 10px;
+            background: #f9f9f9;
+            border-radius: 4px;
+        }
+        
+        .chapter-row input[type="text"] {
+            flex: 3;
+            margin-bottom: 0;
+        }
+        
+        .chapter-row input[type="number"] {
+            flex: 1;
+            margin-bottom: 0;
+            min-width: 80px;
+        }
+        
+        .chapter-row button {
+            flex-shrink: 0;
+        }
+        
+        #chapter-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .hidden {
+            display: none !important;
+        }
+        
+        .file-info {
+            background: #e8f4fd;
+            padding: 10px 15px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            border-left: 4px solid #3498db;
+        }
+        
+        .file-info strong {
+            color: #2c3e50;
+        }
+        
+        .help-text {
+            font-size: 13px;
+            color: #666;
+            margin-top: 5px;
+            margin-bottom: 15px;
+        }
+        
+        .button-row {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        
+        .status {
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 15px;
+        }
+        
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .inline-fields {
+            display: flex;
+            gap: 20px;
+        }
+        
+        .inline-fields > div {
+            flex: 1;
+        }
+        
+        .preview-container {
+            margin-top: 15px;
+        }
+        
+        .preview-nav {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .preview-nav button {
+            padding: 8px 12px;
+        }
+        
+        #preview-canvas {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            max-width: 100%;
+            display: block;
+        }
+        
+        #download-filename {
+            flex: 2;
+            margin-bottom: 0;
+        }
+        
+        #toc-paste {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            font-family: monospace;
+            margin-bottom: 10px;
+            resize: vertical;
+        }
+        
+        .ocr-input-area {
+            border: 2px dashed #ddd;
+            border-radius: 8px;
+            padding: 30px;
+            text-align: center;
+            cursor: pointer;
+            transition: border-color 0.2s, background 0.2s;
+            margin-bottom: 10px;
+        }
+        
+        .ocr-input-area:hover {
+            border-color: #3498db;
+            background: #f8fbff;
+        }
+        
+        .ocr-input-area.dragover {
+            border-color: #3498db;
+            background: #e8f4fd;
+        }
+        
+        .ocr-input-area p {
+            margin: 0;
+            color: #666;
+        }
+        
+        #ocr-preview-container {
+            margin-bottom: 10px;
+        }
+        
+        #ocr-preview {
+            max-width: 100%;
+            max-height: 300px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            display: block;
+            margin-bottom: 10px;
+        }
+        
+        #ocr-status {
+            padding: 10px 15px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+        
+        #ocr-status.processing {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeeba;
+        }
+        
+        #ocr-status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        #ocr-status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        @media (max-width: 600px) {
+            .inline-fields {
+                flex-direction: column;
+                gap: 10px;
+            }
+            
+            .chapter-row {
+                flex-wrap: wrap;
+            }
+            
+            .chapter-row input[type="text"] {
+                flex: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>📚 PDF ToC & Page Number Tool</h1>
+    
+    <!-- Step 1: Upload -->
+    <div class="card" id="step1">
+        <h2><span class="step-number">1</span>Select PDF File</h2>
+        <input type="file" id="pdf-file" accept=".pdf">
+        <div id="file-info" class="file-info hidden"></div>
+    </div>
+    
+    <!-- Step 2: Page Offset -->
+    <div class="card hidden" id="step2">
+        <h2><span class="step-number">2</span>Set Page Offset</h2>
+        <p class="help-text">
+            What PDF page does <strong>page 1</strong> of the book start on? 
+            (Count from the first page of the PDF, including cover, title page, etc.)
+        </p>
+        
+        <div class="inline-fields">
+            <div>
+                <label for="page-offset">Book page 1 is on PDF page:</label>
+                <input type="number" id="page-offset" value="1" min="1">
+            </div>
+            <div>
+                <label for="front-matter-style">Front matter numbering:</label>
+                <select id="front-matter-style">
+                    <option value="roman">Roman numerals (i, ii, iii...)</option>
+                    <option value="arabic">Arabic numerals (1, 2, 3...)</option>
+                </select>
+            </div>
+        </div>
+        
+        <div class="preview-container">
+            <div class="preview-nav">
+                <button onclick="previewPage(-1)" class="secondary">◀ Prev</button>
+                <span id="preview-page-num">Page 1</span>
+                <button onclick="previewPage(1)" class="secondary">Next ▶</button>
+            </div>
+            <canvas id="preview-canvas"></canvas>
+        </div>
+    </div>
+    
+    <!-- Step 3: Chapters -->
+    <div class="card hidden" id="step3">
+        <h2><span class="step-number">3</span>Add Table of Contents</h2>
+        <p class="help-text">
+            Upload/paste a screenshot of the ToC, paste OCR'd text, or add chapters manually.
+        </p>
+        
+        <div id="ocr-section" style="margin-bottom: 15px;">
+            <label>Screenshot of Table of Contents:</label>
+            <div class="ocr-input-area" id="ocr-drop-zone">
+                <input type="file" id="toc-image" accept="image/*" style="display: none;">
+                <p>Click to select image, drag & drop, or paste (Ctrl/Cmd+V)</p>
+            </div>
+            <div id="ocr-preview-container" class="hidden">
+                <img id="ocr-preview" src="" alt="ToC Screenshot">
+                <button onclick="runOcr()" class="success" id="ocr-btn">🔍 Extract Text from Image</button>
+            </div>
+            <div id="ocr-status" class="hidden"></div>
+        </div>
+        
+        <div id="paste-section">
+            <label>Or paste text directly:</label>
+            <textarea id="toc-paste" rows="6" placeholder="Paste your OCR'd table of contents here, e.g.:
+Introduction 1
+Chapter 1: The Beginning 15
+Chapter 2: The Middle 45
+Appendix 203"></textarea>
+            <div class="button-row">
+                <button onclick="parseToc()">Parse ToC</button>
+                <button onclick="clearToc()" class="secondary">Clear All</button>
+            </div>
+        </div>
+        
+        <hr style="margin: 20px 0; border: none; border-top: 1px solid #ddd;">
+        
+        <div id="chapter-list"></div>
+        
+        <div class="button-row">
+            <button onclick="addChapter()">+ Add Chapter</button>
+            <button onclick="addChapter(true)" class="secondary">+ Add Sub-chapter</button>
+        </div>
+    </div>
+    
+    <!-- Step 4: Process -->
+    <div class="card hidden" id="step4">
+        <h2><span class="step-number">4</span>Generate PDF</h2>
+        <div class="button-row">
+            <button onclick="processPdf()" class="success" id="process-btn">Generate PDF with ToC & Page Numbers</button>
+        </div>
+        <div id="status" class="status hidden"></div>
+        <div class="button-row hidden" id="download-section">
+            <input type="text" id="download-filename">
+            <button onclick="downloadPdf()" class="success">⬇ Download</button>
+        </div>
+    </div>
+
+    <script>
+        // Set up PDF.js worker
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        
+        let pdfBytes = null;
+        let pdfDoc = null;
+        let totalPages = 0;
+        let currentPreviewPage = 1;
+        let processedPdfBytes = null;
+        let originalFilename = '';
+        let ocrImageData = null;
+        
+        // Set up OCR drop zone
+        const dropZone = document.getElementById('ocr-drop-zone');
+        const tocImageInput = document.getElementById('toc-image');
+        
+        dropZone.addEventListener('click', () => tocImageInput.click());
+        
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+        
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('dragover');
+        });
+        
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            if (e.dataTransfer.files.length > 0) {
+                handleOcrImage(e.dataTransfer.files[0]);
+            }
+        });
+        
+        tocImageInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleOcrImage(e.target.files[0]);
+            }
+        });
+        
+        // Handle paste anywhere on page
+        document.addEventListener('paste', (e) => {
+            const items = e.clipboardData.items;
+            for (const item of items) {
+                if (item.type.startsWith('image/')) {
+                    e.preventDefault();
+                    const file = item.getAsFile();
+                    handleOcrImage(file);
+                    break;
+                }
+            }
+        });
+        
+        function handleOcrImage(file) {
+            if (!file.type.startsWith('image/')) {
+                alert('Please select an image file');
+                return;
+            }
+            
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                ocrImageData = e.target.result;
+                document.getElementById('ocr-preview').src = ocrImageData;
+                document.getElementById('ocr-preview-container').classList.remove('hidden');
+                document.getElementById('ocr-drop-zone').classList.add('hidden');
+            };
+            reader.readAsDataURL(file);
+        }
+        
+        async function runOcr() {
+            if (!ocrImageData) {
+                alert('Please select an image first');
+                return;
+            }
+            
+            const btn = document.getElementById('ocr-btn');
+            const status = document.getElementById('ocr-status');
+            
+            btn.disabled = true;
+            btn.textContent = 'Processing...';
+            status.className = 'processing';
+            status.classList.remove('hidden');
+            status.textContent = 'Initializing OCR engine...';
+            
+            try {
+                const result = await Tesseract.recognize(
+                    ocrImageData,
+                    'eng',
+                    {
+                        logger: m => {
+                            if (m.status === 'recognizing text') {
+                                status.textContent = `Recognizing text: ${Math.round(m.progress * 100)}%`;
+                            }
+                        }
+                    }
+                );
+                
+                const text = result.data.text;
+                document.getElementById('toc-paste').value = text;
+                
+                status.className = 'success';
+                status.textContent = 'Text extracted! Review and edit if needed, then click "Parse ToC"';
+                
+                // Reset image input for next use
+                document.getElementById('ocr-preview-container').classList.add('hidden');
+                document.getElementById('ocr-drop-zone').classList.remove('hidden');
+                ocrImageData = null;
+                
+            } catch (err) {
+                status.className = 'error';
+                status.textContent = 'OCR failed: ' + err.message;
+            }
+            
+            btn.disabled = false;
+            btn.textContent = '🔍 Extract Text from Image';
+        }
+        
+        // File upload handler
+        document.getElementById('pdf-file').addEventListener('change', async function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            originalFilename = file.name;
+            
+            try {
+                // Read file as ArrayBuffer
+                pdfBytes = await file.arrayBuffer();
+                
+                // Load with PDF.js for preview
+                pdfDoc = await pdfjsLib.getDocument({ data: pdfBytes.slice(0) }).promise;
+                totalPages = pdfDoc.numPages;
+                
+                document.getElementById('file-info').innerHTML = 
+                    `<strong>File:</strong> ${file.name} | <strong>Pages:</strong> ${totalPages}`;
+                document.getElementById('file-info').classList.remove('hidden');
+                
+                // Update page offset max
+                document.getElementById('page-offset').max = totalPages;
+                
+                // Show next steps
+                document.getElementById('step2').classList.remove('hidden');
+                document.getElementById('step3').classList.remove('hidden');
+                document.getElementById('step4').classList.remove('hidden');
+                
+                // Add initial chapter row
+                if (document.getElementById('chapter-list').children.length === 0) {
+                    addChapter();
+                }
+                
+                // Load preview
+                renderPreview(1);
+                
+            } catch (err) {
+                alert('Error loading PDF: ' + err.message);
+            }
+        });
+        
+        // Render preview
+        async function renderPreview(pageNum) {
+            if (!pdfDoc) return;
+            
+            currentPreviewPage = pageNum;
+            document.getElementById('preview-page-num').textContent = `Page ${pageNum} of ${totalPages}`;
+            
+            try {
+                const page = await pdfDoc.getPage(pageNum);
+                const scale = 1.5;
+                const viewport = page.getViewport({ scale });
+                
+                const canvas = document.getElementById('preview-canvas');
+                const context = canvas.getContext('2d');
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
+                
+                await page.render({
+                    canvasContext: context,
+                    viewport: viewport
+                }).promise;
+                
+            } catch (err) {
+                console.error('Preview error:', err);
+            }
+        }
+        
+        // Preview navigation
+        function previewPage(delta) {
+            const newPage = currentPreviewPage + delta;
+            if (newPage >= 1 && newPage <= totalPages) {
+                renderPreview(newPage);
+            }
+        }
+        
+        // Parse pasted ToC
+        function parseToc() {
+            const text = document.getElementById('toc-paste').value.trim();
+            if (!text) {
+                alert('Please paste a table of contents first');
+                return;
+            }
+            
+            const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+            let parsed = 0;
+            let i = 0;
+            
+            while (i < lines.length) {
+                let cleanLine = lines[i];
+                
+                // Remove dot leaders, dashes, underscores used as fillers
+                cleanLine = cleanLine.replace(/[.\-_]{2,}/g, ' ').trim();
+                
+                // Check if this line is ONLY a page number (arabic or roman)
+                const isPageOnly = /^(\d+|[ivxlcdm]+)$/i.test(cleanLine);
+                
+                if (isPageOnly && i > 0) {
+                    // This line is just a page number - look back for title
+                    const pageNum = romanToArabic(cleanLine);
+                    
+                    // Collect preceding non-page-number lines as title
+                    let titleParts = [];
+                    let j = i - 1;
+                    
+                    // Go back and collect title lines (stop at previous page number or start)
+                    while (j >= 0) {
+                        const prevLine = lines[j].trim();
+                        const prevIsPage = /^(\d+|[ivxlcdm]+)$/i.test(prevLine);
+                        if (prevIsPage) break;
+                        
+                        // Skip if this line was already used
+                        if (prevLine._used) break;
+                        
+                        titleParts.unshift(prevLine);
+                        j--;
+                    }
+                    
+                    if (titleParts.length > 0 && pageNum) {
+                        // Mark lines as used
+                        for (let k = j + 1; k < i; k++) {
+                            lines[k]._used = true;
+                        }
+                        
+                        // Combine title parts (e.g., "Chapter 1" + "Addiction is the Wound...")
+                        const title = titleParts.join(' – ');
+                        addChapterWithData(title, pageNum);
+                        parsed++;
+                    }
+                    i++;
+                    continue;
+                }
+                
+                // Try inline format: "Chapter Title 123" or "Chapter Title    123"
+                const match = cleanLine.match(/^(.+?)\s+(\d+)\s*$/);
+                
+                if (match) {
+                    const title = match[1].trim();
+                    const page = parseInt(match[2]);
+                    
+                    if (title && page) {
+                        addChapterWithData(title, page);
+                        parsed++;
+                    }
+                }
+                
+                i++;
+            }
+            
+            if (parsed > 0) {
+                document.getElementById('toc-paste').value = '';
+                alert(`Successfully parsed ${parsed} chapter(s)`);
+            } else {
+                alert('Could not parse any chapters. Make sure each line has a title followed by a page number, or title on one line with page number on the next.');
+            }
+        }
+        
+        // Convert roman numerals to arabic numbers
+        function romanToArabic(str) {
+            const input = str.toUpperCase();
+            
+            // If it's already a number, return it
+            if (/^\d+$/.test(input)) {
+                return parseInt(input);
+            }
+            
+            // Check if it's a valid roman numeral
+            if (!/^[IVXLCDM]+$/i.test(input)) {
+                return null;
+            }
+            
+            const romanValues = {
+                'I': 1, 'V': 5, 'X': 10, 'L': 50,
+                'C': 100, 'D': 500, 'M': 1000
+            };
+            
+            let result = 0;
+            for (let i = 0; i < input.length; i++) {
+                const current = romanValues[input[i]];
+                const next = romanValues[input[i + 1]];
+                
+                if (next && current < next) {
+                    result -= current;
+                } else {
+                    result += current;
+                }
+            }
+            
+            return result;
+        }
+        
+        // Add chapter with pre-filled data
+        function addChapterWithData(title, page) {
+            const list = document.getElementById('chapter-list');
+            const row = document.createElement('div');
+            row.className = 'chapter-row';
+            row.innerHTML = `
+                <input type="text" placeholder="Chapter title" class="chapter-title" value="${title.replace(/"/g, '&quot;')}">
+                <input type="number" placeholder="Page" min="1" class="chapter-page" value="${page}">
+                <button class="danger" onclick="this.parentElement.remove()">✕</button>
+            `;
+            list.appendChild(row);
+        }
+        
+        // Clear all chapters
+        function clearToc() {
+            if (confirm('Clear all chapters?')) {
+                document.getElementById('chapter-list').innerHTML = '';
+                document.getElementById('toc-paste').value = '';
+            }
+        }
+        
+        // Add chapter row
+        function addChapter(isSubchapter = false) {
+            const list = document.getElementById('chapter-list');
+            const row = document.createElement('div');
+            row.className = 'chapter-row';
+            row.innerHTML = `
+                <input type="text" placeholder="${isSubchapter ? '    Sub-chapter title' : 'Chapter title'}" class="chapter-title">
+                <input type="number" placeholder="Page" min="1" class="chapter-page">
+                <button class="danger" onclick="this.parentElement.remove()">✕</button>
+            `;
+            list.appendChild(row);
+            row.querySelector('.chapter-title').focus();
+        }
+        
+        // Process PDF
+        async function processPdf() {
+            if (!pdfBytes) {
+                alert('Please select a PDF file first');
+                return;
+            }
+            
+            const pageOffset = parseInt(document.getElementById('page-offset').value);
+            const frontMatterStyle = document.getElementById('front-matter-style').value;
+            
+            // Gather chapters
+            const chapters = [];
+            document.querySelectorAll('.chapter-row').forEach(row => {
+                const title = row.querySelector('.chapter-title').value.trim();
+                const page = row.querySelector('.chapter-page').value;
+                if (title && page) {
+                    chapters.push({ title, page: parseInt(page) });
+                }
+            });
+            
+            if (chapters.length === 0) {
+                alert('Please add at least one chapter');
+                return;
+            }
+            
+            const btn = document.getElementById('process-btn');
+            btn.disabled = true;
+            btn.textContent = 'Processing...';
+            
+            try {
+                const { PDFDocument, PDFName, PDFArray, PDFDict, PDFNumber, PDFString } = PDFLib;
+                
+                // Load the PDF
+                const pdfDocLib = await PDFDocument.load(pdfBytes);
+                const numPages = pdfDocLib.getPageCount();
+                
+                // Create bookmarks/outlines
+                const outlineItems = [];
+                
+                for (const chapter of chapters) {
+                    const pdfPageIndex = (chapter.page - 1) + (pageOffset - 1);
+                    if (pdfPageIndex >= 0 && pdfPageIndex < numPages) {
+                        outlineItems.push({
+                            title: chapter.title,
+                            pageIndex: pdfPageIndex
+                        });
+                    }
+                }
+                
+                // Add outline to PDF
+                if (outlineItems.length > 0) {
+                    const context = pdfDocLib.context;
+                    const pages = pdfDocLib.getPages();
+                    
+                    // Create outline items
+                    const outlineItemRefs = [];
+                    
+                    for (let i = 0; i < outlineItems.length; i++) {
+                        const item = outlineItems[i];
+                        const page = pages[item.pageIndex];
+                        const pageRef = pdfDocLib.catalog.Pages().Kids().get(item.pageIndex);
+                        
+                        const outlineItem = context.obj({
+                            Title: PDFString.of(item.title),
+                            Parent: null, // Will be set later
+                            Dest: [pageRef, PDFName.of('Fit')]
+                        });
+                        
+                        outlineItemRefs.push(context.register(outlineItem));
+                    }
+                    
+                    // Link outline items
+                    for (let i = 0; i < outlineItemRefs.length; i++) {
+                        const itemDict = context.lookup(outlineItemRefs[i]);
+                        if (i > 0) {
+                            itemDict.set(PDFName.of('Prev'), outlineItemRefs[i - 1]);
+                        }
+                        if (i < outlineItemRefs.length - 1) {
+                            itemDict.set(PDFName.of('Next'), outlineItemRefs[i + 1]);
+                        }
+                    }
+                    
+                    // Create outline dictionary
+                    const outlineDict = context.obj({
+                        Type: PDFName.of('Outlines'),
+                        First: outlineItemRefs[0],
+                        Last: outlineItemRefs[outlineItemRefs.length - 1],
+                        Count: PDFNumber.of(outlineItemRefs.length)
+                    });
+                    
+                    const outlineRef = context.register(outlineDict);
+                    
+                    // Set parent for all items
+                    for (const ref of outlineItemRefs) {
+                        const itemDict = context.lookup(ref);
+                        itemDict.set(PDFName.of('Parent'), outlineRef);
+                    }
+                    
+                    // Add outline to catalog
+                    pdfDocLib.catalog.set(PDFName.of('Outlines'), outlineRef);
+                    pdfDocLib.catalog.set(PDFName.of('PageMode'), PDFName.of('UseOutlines'));
+                }
+                
+                // Add page labels
+                const pageLabelsDict = pdfDocLib.context.obj({});
+                const numsArray = [];
+                
+                if (pageOffset > 1) {
+                    // Front matter
+                    numsArray.push(PDFNumber.of(0));
+                    if (frontMatterStyle === 'roman') {
+                        numsArray.push(pdfDocLib.context.obj({ S: PDFName.of('r'), St: PDFNumber.of(1) }));
+                    } else {
+                        numsArray.push(pdfDocLib.context.obj({ S: PDFName.of('D'), St: PDFNumber.of(1) }));
+                    }
+                }
+                
+                // Main content
+                numsArray.push(PDFNumber.of(pageOffset - 1));
+                numsArray.push(pdfDocLib.context.obj({ S: PDFName.of('D'), St: PDFNumber.of(1) }));
+                
+                const numsArrayObj = pdfDocLib.context.obj(numsArray);
+                pageLabelsDict.set(PDFName.of('Nums'), numsArrayObj);
+                
+                const pageLabelsDictRef = pdfDocLib.context.register(pageLabelsDict);
+                pdfDocLib.catalog.set(PDFName.of('PageLabels'), pageLabelsDictRef);
+                
+                // Save the PDF
+                processedPdfBytes = await pdfDocLib.save();
+                
+                const status = document.getElementById('status');
+                status.classList.remove('hidden');
+                status.className = 'status success';
+                status.innerHTML = `✓ PDF processed successfully! Added ${outlineItems.length} bookmarks.`;
+                
+                document.getElementById('download-section').classList.remove('hidden');
+                document.getElementById('download-filename').value = originalFilename;
+                
+            } catch (err) {
+                console.error(err);
+                const status = document.getElementById('status');
+                status.classList.remove('hidden');
+                status.className = 'status error';
+                status.innerHTML = `✗ Error: ${err.message}`;
+            }
+            
+            btn.disabled = false;
+            btn.textContent = 'Generate PDF with ToC & Page Numbers';
+        }
+        
+        // Download
+        function downloadPdf() {
+            if (!processedPdfBytes) return;
+            
+            let filename = document.getElementById('download-filename').value.trim();
+            if (!filename.toLowerCase().endsWith('.pdf')) {
+                filename += '.pdf';
+            }
+            
+            const blob = new Blob([processedPdfBytes], { type: 'application/pdf' });
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+        
+        // Keyboard shortcuts
+        document.addEventListener('keydown', function(e) {
+            // Enter in chapter page field -> add new chapter
+            if (e.key === 'Enter' && e.target.classList.contains('chapter-page')) {
+                e.preventDefault();
+                addChapter();
+            }
+        });
+    </script>
+</body>
+</html>

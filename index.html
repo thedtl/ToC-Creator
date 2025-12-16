@@ -904,12 +904,17 @@ Appendix 203"></textarea>
                     for (let i = 0; i < outlineItems.length; i++) {
                         const item = outlineItems[i];
                         const page = pages[item.pageIndex];
-                        const pageRef = pdfDocLib.catalog.Pages().Kids().get(item.pageIndex);
+                        
+                        // Get the page reference correctly
+                        const pageRef = page.ref;
+                        
+                        // Create destination array
+                        const destArray = context.obj([pageRef, PDFName.of('Fit')]);
                         
                         const outlineItem = context.obj({
                             Title: PDFString.of(item.title),
                             Parent: null, // Will be set later
-                            Dest: [pageRef, PDFName.of('Fit')]
+                            Dest: destArray
                         });
                         
                         outlineItemRefs.push(context.register(outlineItem));

@@ -374,8 +374,8 @@
     <div class="card hidden" id="step2">
         <h2><span class="step-number">2</span>Set Page Offset</h2>
         <p class="help-text">
-            What PDF page does <strong>page 1</strong> of the book start on? 
-            (Count from the first page of the PDF, including cover, title page, etc.)
+            Set the PDF page numbers where the book's numbering begins.<br>
+            <small>Example: If there's a cover scan, then Roman numerals start on PDF page 2, and "page 1" starts on PDF page 15.</small>
         </p>
         
         <div class="inline-fields">
@@ -384,12 +384,18 @@
                 <input type="number" id="page-offset" value="1" min="1">
             </div>
             <div>
-                <label for="front-matter-style">Front matter numbering:</label>
-                <select id="front-matter-style">
-                    <option value="roman">Roman numerals (i, ii, iii...)</option>
-                    <option value="arabic">Arabic numerals (1, 2, 3...)</option>
-                </select>
+                <label for="front-matter-offset">Roman page i is on PDF page:</label>
+                <input type="number" id="front-matter-offset" value="1" min="1">
+                <div class="help-text" style="margin-top: 2px;">Leave as 1 if front matter starts at first PDF page</div>
             </div>
+        </div>
+        
+        <div style="margin-top: 10px;">
+            <label for="front-matter-style">Front matter numbering style:</label>
+            <select id="front-matter-style">
+                <option value="roman">Roman numerals (i, ii, iii...)</option>
+                <option value="arabic">Arabic numerals (1, 2, 3...)</option>
+            </select>
         </div>
         
         <div class="preview-container">
@@ -530,6 +536,66 @@ Appendix 203"></textarea>
             }
         }
         
+        // Pre-process image for better OCR (grayscale + upscale + border)
+        function preprocessImage(imageSource, { upscale = 2, border = 10 } = {}) {
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.onload = () => {
+                    const w = Math.round(img.width * upscale);
+                    const h = Math.round(img.height * upscale);
+                    const canvas = document.createElement('canvas');
+                    canvas.width = w + border * 2;
+                    canvas.height = h + border * 2;
+                    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+                    
+                    // White background (important for transparency/alpha issues)
+                    ctx.fillStyle = '#fff';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    
+                    // Draw scaled image inside border
+                    ctx.drawImage(img, border, border, w, h);
+                    
+                    // Convert to grayscale (let Tesseract handle binarization internally)
+                    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    const data = imageData.data;
+                    for (let i = 0; i < data.length; i += 4) {
+                        const gray = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
+                        data[i] = data[i + 1] = data[i + 2] = gray;
+                    }
+                    ctx.putImageData(imageData, 0, 0);
+                    
+                    resolve(canvas.toDataURL('image/png'));
+                };
+                img.src = imageSource;
+            });
+        }
+        
+        // Persistent OCR worker (created once, reused)
+        let ocrWorker = null;
+        
+        async function getOcrWorker() {
+            if (ocrWorker) return ocrWorker;
+            
+            const status = document.getElementById('ocr-status');
+            status.textContent = 'Loading OCR engine (first time may take a moment)...';
+            
+            ocrWorker = await Tesseract.createWorker('eng', 1, {
+                logger: m => {
+                    if (m.status === 'recognizing text') {
+                        status.textContent = `OCR: ${Math.round(m.progress * 100)}%`;
+                    }
+                }
+            });
+            
+            // Set parameters optimized for ToC layouts
+            await ocrWorker.setParameters({
+                preserve_interword_spaces: '1',
+                user_defined_dpi: '300'
+            });
+            
+            return ocrWorker;
+        }
+        
         function updateOcrPreviews() {
             const container = document.getElementById('ocr-previews');
             container.innerHTML = '';
@@ -580,57 +646,69 @@ Appendix 203"></textarea>
             btn.disabled = true;
             status.className = 'processing';
             status.classList.remove('hidden');
-            status.textContent = 'Initializing OCR engine...';
             
             try {
+                // Get or create persistent worker
+                const worker = await getOcrWorker();
+                
                 let allText = '';
                 
                 for (let i = 0; i < ocrImages.length; i++) {
-                    status.textContent = `Processing image ${i + 1} of ${ocrImages.length}...`;
+                    status.textContent = `Preprocessing image ${i + 1}...`;
                     
-                    const result = await Tesseract.recognize(
-                        ocrImages[i],
-                        'eng',
-                        {
-                            logger: m => {
-                                if (m.status === 'recognizing text') {
-                                    status.textContent = `Image ${i + 1}/${ocrImages.length}: ${Math.round(m.progress * 100)}%`;
-                                }
-                            },
-                            // OCR settings for better ToC recognition
-                            tessedit_pageseg_mode: '6', // Assume single uniform block
-                            preserve_interword_spaces: '1'
-                        }
-                    );
+                    // Pre-process image (grayscale, upscale, add border)
+                    const processedImage = await preprocessImage(ocrImages[i]);
+                    
+                    status.textContent = `Recognizing text in image ${i + 1}/${ocrImages.length}...`;
+                    
+                    // Use the persistent worker
+                    const result = await worker.recognize(processedImage);
                     
                     allText += result.data.text + '\n';
                 }
                 
-                // Post-process to fix common OCR errors with numbers
+                // Post-process to fix common OCR errors
                 let cleanedText = allText
-                    // Fix common letter/number confusions
-                    .replace(/\bl\b/g, '1')      // lone 'l' is probably '1'
-                    .replace(/\bO\b/g, '0')      // lone 'O' is probably '0'
-                    .replace(/\bo\b/g, '0')      // lone 'o' at end might be '0'
-                    .replace(/(\d)l/g, '$11')    // 'l' after digit is '1'
-                    .replace(/l(\d)/g, '1$1')    // 'l' before digit is '1'
-                    .replace(/(\d)O/g, '$10')    // 'O' after digit is '0'
-                    .replace(/O(\d)/g, '0$1')    // 'O' before digit is '0'
-                    .replace(/(\d)o/g, '$10')    // 'o' after digit is '0'
-                    .replace(/(\d)S/g, '$15')    // 'S' after digit might be '5'
-                    .replace(/(\d)B/g, '$18')    // 'B' after digit might be '8'
+                    // Remove leader dots and underscores
+                    .replace(/\.{2,}/g, ' ')
+                    .replace(/_{2,}/g, ' ')
+                    
+                    // Fix Roman numerals at start of lines (chapter numbers)
+                    .replace(/^Il\b/gm, 'II')
+                    .replace(/^Ill\b/gm, 'III')
+                    .replace(/^Iv\b/gm, 'IV')
+                    .replace(/^lI\b/gm, 'II')
+                    .replace(/^lII\b/gm, 'III')
+                    .replace(/^lV\b/gm, 'IV')
+                    
+                    // Remove "page" prefix
+                    .replace(/page\s+/gi, '')
+                    
+                    // Fix common number OCR errors at end of lines
+                    .replace(/l(\d+)\s*$/gm, '1$1')
+                    .replace(/(\d)l\s*$/gm, '$11')
+                    .replace(/O(\d+)\s*$/gm, '0$1')
+                    .replace(/(\d)O\s*$/gm, '$10')
+                    .replace(/(\d)g\s*$/gm, '$19')
+                    .replace(/(\d)q\s*$/gm, '$19')
+                    .replace(/6g\b/g, '69')
+                    .replace(/6q\b/g, '69')
+                    
+                    // Standardize spacing
+                    .replace(/[ \t]+/g, ' ')
                     .trim();
                 
                 document.getElementById('toc-paste').value = cleanedText;
                 
                 status.className = 'success';
-                status.innerHTML = `Text extracted from ${ocrImages.length} image(s)!<br><strong>Please review the numbers carefully</strong> — OCR sometimes confuses letters and digits. Then click "Parse ToC"`;
+                status.innerHTML = `Text extracted from ${ocrImages.length} image(s)!<br><strong>Please review the numbers carefully</strong>, then click "Parse ToC"`;
                 
                 // Reset for next use
                 ocrImages = [];
                 updateOcrPreviews();
                 
             } catch (err) {
+                console.error(err);
                 status.className = 'error';
                 status.textContent = 'OCR failed: ' + err.message;
             }
@@ -733,8 +811,8 @@ Appendix 203"></textarea>
                 // Remove dot leaders, dashes, underscores used as fillers
                 cleanLine = cleanLine.replace(/[.\-_]{2,}/g, ' ').trim();
                 
-                // Check if this line is ONLY a page number (arabic or roman)
-                const isPageOnly = /^(\d+|[ivxlcdm]+)$/i.test(cleanLine);
+                // Check if this line is ONLY a page number (arabic or roman) - allow trailing space
+                const isPageOnly = /^(\d+|[ivxlcdm]+)\s*$/i.test(cleanLine);
                 
                 if (isPageOnly) {
                     // This line is just a page number - look back for title
@@ -770,7 +848,8 @@ Appendix 203"></textarea>
                     continue;
                 }
                 
-                // Try inline format: "Chapter Title 123" or "Chapter Title    123"
+                // Try inline format: "Chapter Title 123" or "I CHAPTER TITLE 123"
+                // Match title (possibly starting with Roman chapter number) followed by page number
                 const match = cleanLine.match(/^(.+?)\s+(\d+)\s*$/);
                 
                 if (match) {
@@ -781,6 +860,24 @@ Appendix 203"></textarea>
                         addChapterWithData(title, page, false);
                         usedLines.add(i);
                         parsed++;
+                        continue;
+                    }
+                }
+                
+                // Try inline format with Roman numeral page: "PREFACE ix" or "KEY TO REFERENCES xi"
+                const romanMatch = cleanLine.match(/^(.+?)\s+([ivxlcdm]+)\s*$/i);
+                
+                if (romanMatch) {
+                    const title = romanMatch[1].trim();
+                    const pageStr = romanMatch[2].toLowerCase();
+                    const pageNum = romanToArabic(pageStr);
+                    
+                    // Make sure it's a valid Roman numeral and not part of a word
+                    if (title && pageNum && pageNum <= 50) { // Front matter unlikely to exceed 50 pages
+                        addChapterWithData(title, pageNum, true);
+                        usedLines.add(i);
+                        parsed++;
+                        continue;
                     }
                 }
             }
@@ -827,7 +924,7 @@ Appendix 203"></textarea>
             return result;
         }
         
-        // Add chapter with pre-filled data
+        // Add chapter with pre-filled data (safe DOM construction)
         function addChapterWithData(title, page, isRoman = false) {
             const list = document.getElementById('chapter-list');
             const row = document.createElement('div');
@@ -836,11 +933,27 @@ Appendix 203"></textarea>
             // Format page display - keep as Roman if it was Roman
             const pageDisplay = isRoman ? toRoman(page).toLowerCase() : page;
             
-            row.innerHTML = `
-                <input type="text" placeholder="Chapter title" class="chapter-title" value="${title.replace(/"/g, '&quot;')}">
-                <input type="text" placeholder="Page" class="chapter-page" value="${pageDisplay}">
-                <button class="danger" onclick="this.parentElement.remove()">✕</button>
-            `;
+            // Build DOM elements safely (no innerHTML with user content)
+            const titleInput = document.createElement('input');
+            titleInput.type = 'text';
+            titleInput.placeholder = 'Chapter title';
+            titleInput.className = 'chapter-title';
+            titleInput.value = title; // Safe: .value is not parsed as HTML
+            
+            const pageInput = document.createElement('input');
+            pageInput.type = 'text';
+            pageInput.placeholder = 'Page';
+            pageInput.className = 'chapter-page';
+            pageInput.value = pageDisplay;
+            
+            const removeBtn = document.createElement('button');
+            removeBtn.className = 'danger';
+            removeBtn.textContent = '✕';
+            removeBtn.onclick = () => row.remove();
+            
+            row.appendChild(titleInput);
+            row.appendChild(pageInput);
+            row.appendChild(removeBtn);
             list.appendChild(row);
         }
         
@@ -869,18 +982,32 @@ Appendix 203"></textarea>
             }
         }
         
-        // Add chapter row
+        // Add chapter row (safe DOM construction)
         function addChapter(isSubchapter = false) {
             const list = document.getElementById('chapter-list');
             const row = document.createElement('div');
             row.className = 'chapter-row';
-            row.innerHTML = `
-                <input type="text" placeholder="${isSubchapter ? '    Sub-chapter title' : 'Chapter title'}" class="chapter-title">
-                <input type="text" placeholder="Page (e.g., 1 or vii)" class="chapter-page">
-                <button class="danger" onclick="this.parentElement.remove()">✕</button>
-            `;
+            
+            const titleInput = document.createElement('input');
+            titleInput.type = 'text';
+            titleInput.placeholder = isSubchapter ? '    Sub-chapter title' : 'Chapter title';
+            titleInput.className = 'chapter-title';
+            
+            const pageInput = document.createElement('input');
+            pageInput.type = 'text';
+            pageInput.placeholder = 'Page (e.g., 1 or vii)';
+            pageInput.className = 'chapter-page';
+            
+            const removeBtn = document.createElement('button');
+            removeBtn.className = 'danger';
+            removeBtn.textContent = '✕';
+            removeBtn.onclick = () => row.remove();
+            
+            row.appendChild(titleInput);
+            row.appendChild(pageInput);
+            row.appendChild(removeBtn);
             list.appendChild(row);
-            row.querySelector('.chapter-title').focus();
+            titleInput.focus();
         }
         
         // Process PDF
@@ -891,6 +1018,7 @@ Appendix 203"></textarea>
             }
             
             const pageOffset = parseInt(document.getElementById('page-offset').value);
+            const frontMatterOffset = parseInt(document.getElementById('front-matter-offset').value);
             const frontMatterStyle = document.getElementById('front-matter-style').value;
             
             // Gather chapters
@@ -930,10 +1058,11 @@ Appendix 203"></textarea>
                 for (const chapter of chapters) {
                     let pdfPageIndex;
                     if (chapter.isRoman) {
-                        // Roman numeral = front matter, page number is direct (1-indexed to 0-indexed)
-                        pdfPageIndex = chapter.page - 1;
+                        // Roman numeral = front matter
+                        // Use front matter offset: page i is at frontMatterOffset
+                        pdfPageIndex = (chapter.page - 1) + (frontMatterOffset - 1);
                     } else {
-                        // Arabic = main content, apply offset
+                        // Arabic = main content, apply page offset
                         pdfPageIndex = (chapter.page - 1) + (pageOffset - 1);
                     }
                     
@@ -948,12 +1077,7 @@ Appendix 203"></textarea>
                 // Add outline to PDF
                 if (outlineItems.length > 0) {
                     const context = pdfDocLib.context;
-                    const pages = pdfDocLib.getPages();
-                    
-                    // Get all page refs from the page tree
-                    const pageTreeRef = pdfDocLib.catalog.get(PDFName.of('Pages'));
-                    const pageTree = context.lookup(pageTreeRef);
-                    const kidsArray = pageTree.get(PDFName.of('Kids'));
+                    const pages = pdfDocLib.getPages(); // Safe way to get all pages
                     
                     // Create outline items
                     const outlineItemRefs = [];
@@ -961,8 +1085,8 @@ Appendix 203"></textarea>
                     for (let i = 0; i < outlineItems.length; i++) {
                         const item = outlineItems[i];
                         
-                        // Get page ref from Kids array
-                        const pageRef = kidsArray.get(item.pageIndex);
+                        // Get page ref safely from the page object
+                        const pageRef = pages[item.pageIndex].ref;
                         
                         // Create the outline item
                         const outlineItemDict = context.obj({
@@ -971,17 +1095,6 @@ Appendix 203"></textarea>
                         });
                         
                         outlineItemRefs.push(context.register(outlineItemDict));
-                    }
-                    
-                    // Link outline items (Prev/Next)
-                    for (let i = 0; i < outlineItemRefs.length; i++) {
-                        const itemDict = context.lookup(outlineItemRefs[i]);
-                        if (i > 0) {
-                            itemDict.set(PDFName.of('Prev'), outlineItemRefs[i - 1]);
-                        }
-                        if (i < outlineItemRefs.length - 1) {
-                            itemDict.set(PDFName.of('Next'), outlineItemRefs[i + 1]);
-                        }
                     }
                     
                     // Create outline root dictionary
@@ -994,10 +1107,17 @@ Appendix 203"></textarea>
                     
                     const outlineRef = context.register(outlineDict);
                     
-                    // Set parent for all items
-                    for (const ref of outlineItemRefs) {
-                        const itemDict = context.lookup(ref);
+                    // Set parent and link items (Prev/Next)
+                    for (let i = 0; i < outlineItemRefs.length; i++) {
+                        const itemDict = context.lookup(outlineItemRefs[i]);
                         itemDict.set(PDFName.of('Parent'), outlineRef);
+                        
+                        if (i > 0) {
+                            itemDict.set(PDFName.of('Prev'), outlineItemRefs[i - 1]);
+                        }
+                        if (i < outlineItemRefs.length - 1) {
+                            itemDict.set(PDFName.of('Next'), outlineItemRefs[i + 1]);
+                        }
                     }
                     
                     // Add outline to catalog
@@ -1009,9 +1129,15 @@ Appendix 203"></textarea>
                 const pageLabelsDict = pdfDocLib.context.obj({});
                 const numsArray = [];
                 
-                if (pageOffset > 1) {
-                    // Front matter
+                // Handle pages before front matter (if any) - leave unnumbered or start from 1
+                if (frontMatterOffset > 1) {
                     numsArray.push(PDFNumber.of(0));
+                    numsArray.push(pdfDocLib.context.obj({ S: PDFName.of('D'), St: PDFNumber.of(1) }));
+                }
+                
+                // Front matter (Roman or Arabic numerals starting at frontMatterOffset)
+                if (frontMatterOffset < pageOffset) {
+                    numsArray.push(PDFNumber.of(frontMatterOffset - 1));
                     if (frontMatterStyle === 'roman') {
                         numsArray.push(pdfDocLib.context.obj({ S: PDFName.of('r'), St: PDFNumber.of(1) }));
                     } else {
@@ -1019,7 +1145,7 @@ Appendix 203"></textarea>
                     }
                 }
                 
-                // Main content
+                // Main content (Arabic numerals starting at pageOffset)
                 numsArray.push(PDFNumber.of(pageOffset - 1));
                 numsArray.push(pdfDocLib.context.obj({ S: PDFName.of('D'), St: PDFNumber.of(1) }));
                 

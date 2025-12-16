@@ -682,6 +682,21 @@ Appendix 203"></textarea>
                     .replace(/^lII\b/gm, 'III')
                     .replace(/^lV\b/gm, 'IV')
                     
+                    // Fix Roman numeral page numbers with letter/number mixups (at end of lines)
+                    .replace(/\bx1\s*$/gim, 'xi')
+                    .replace(/\bx11\s*$/gim, 'xii')
+                    .replace(/\bx111\s*$/gim, 'xiii')
+                    .replace(/\bx1v\s*$/gim, 'xiv')
+                    .replace(/\bxv1\s*$/gim, 'xvi')
+                    .replace(/\bxv11\s*$/gim, 'xvii')
+                    .replace(/\bv1\s*$/gim, 'vi')
+                    .replace(/\bv11\s*$/gim, 'vii')
+                    .replace(/\bv111\s*$/gim, 'viii')
+                    .replace(/\b1x\s*$/gim, 'ix')
+                    .replace(/\b1v\s*$/gim, 'iv')
+                    .replace(/\b11\s*$/gm, 'ii')        // standalone 11 at end -> ii (risky but common)
+                    .replace(/\b111\s*$/gm, 'iii')      // standalone 111 at end -> iii
+                    
                     // Remove "page" prefix
                     .replace(/page\s+/gi, '')
                     

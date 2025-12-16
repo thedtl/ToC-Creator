@@ -406,7 +406,8 @@
     <div class="card hidden" id="step3">
         <h2><span class="step-number">3</span>Add Table of Contents</h2>
         <p class="help-text">
-            Upload/paste a screenshot of the ToC, paste OCR'd text, or add chapters manually.
+            Upload/paste a screenshot of the ToC, paste OCR'd text, or add chapters manually.<br>
+            <small>Page numbers can be Arabic (1, 2, 3) or Roman numerals (i, ii, iii) for front matter.</small>
         </p>
         
         <div id="ocr-section" style="margin-bottom: 15px;">
@@ -595,17 +596,35 @@ Appendix 203"></textarea>
                                 if (m.status === 'recognizing text') {
                                     status.textContent = `Image ${i + 1}/${ocrImages.length}: ${Math.round(m.progress * 100)}%`;
                                 }
-                            }
+                            },
+                            // OCR settings for better ToC recognition
+                            tessedit_pageseg_mode: '6', // Assume single uniform block
+                            preserve_interword_spaces: '1'
                         }
                     );
                     
                     allText += result.data.text + '\n';
                 }
                 
-                document.getElementById('toc-paste').value = allText.trim();
+                // Post-process to fix common OCR errors with numbers
+                let cleanedText = allText
+                    // Fix common letter/number confusions
+                    .replace(/\bl\b/g, '1')      // lone 'l' is probably '1'
+                    .replace(/\bO\b/g, '0')      // lone 'O' is probably '0'
+                    .replace(/\bo\b/g, '0')      // lone 'o' at end might be '0'
+                    .replace(/(\d)l/g, '$11')    // 'l' after digit is '1'
+                    .replace(/l(\d)/g, '1$1')    // 'l' before digit is '1'
+                    .replace(/(\d)O/g, '$10')    // 'O' after digit is '0'
+                    .replace(/O(\d)/g, '0$1')    // 'O' before digit is '0'
+                    .replace(/(\d)o/g, '$10')    // 'o' after digit is '0'
+                    .replace(/(\d)S/g, '$15')    // 'S' after digit might be '5'
+                    .replace(/(\d)B/g, '$18')    // 'B' after digit might be '8'
+                    .trim();
+                
+                document.getElementById('toc-paste').value = cleanedText;
                 
                 status.className = 'success';
-                status.textContent = `Text extracted from ${ocrImages.length} image(s)! Review and edit if needed, then click "Parse ToC"`;
+                status.innerHTML = `Text extracted from ${ocrImages.length} image(s)!<br><strong>Please review the numbers carefully</strong> — OCR sometimes confuses letters and digits. Then click "Parse ToC"`;
                 
                 // Reset for next use
                 ocrImages = [];
@@ -704,9 +723,11 @@ Appendix 203"></textarea>
             
             const lines = text.split('\n').map(l => l.trim()).filter(l => l);
             let parsed = 0;
-            let i = 0;
+            let usedLines = new Set();
             
-            while (i < lines.length) {
+            for (let i = 0; i < lines.length; i++) {
+                if (usedLines.has(i)) continue;
+                
                 let cleanLine = lines[i];
                 
                 // Remove dot leaders, dashes, underscores used as fillers
@@ -715,22 +736,21 @@ Appendix 203"></textarea>
                 // Check if this line is ONLY a page number (arabic or roman)
                 const isPageOnly = /^(\d+|[ivxlcdm]+)$/i.test(cleanLine);
                 
-                if (isPageOnly && i > 0) {
+                if (isPageOnly) {
                     // This line is just a page number - look back for title
-                    const pageNum = romanToArabic(cleanLine);
+                    const pageStr = cleanLine;
+                    const isRoman = /^[ivxlcdm]+$/i.test(pageStr);
+                    const pageNum = romanToArabic(pageStr);
                     
                     // Collect preceding non-page-number lines as title
                     let titleParts = [];
                     let j = i - 1;
                     
-                    // Go back and collect title lines (stop at previous page number or start)
-                    while (j >= 0) {
+                    // Go back and collect title lines (stop at previous page number or used line)
+                    while (j >= 0 && !usedLines.has(j)) {
                         const prevLine = lines[j].trim();
                         const prevIsPage = /^(\d+|[ivxlcdm]+)$/i.test(prevLine);
                         if (prevIsPage) break;
-                        
-                        // Skip if this line was already used
-                        if (prevLine._used) break;
                         
                         titleParts.unshift(prevLine);
                         j--;
@@ -738,16 +758,15 @@ Appendix 203"></textarea>
                     
                     if (titleParts.length > 0 && pageNum) {
                         // Mark lines as used
-                        for (let k = j + 1; k < i; k++) {
-                            lines[k]._used = true;
+                        for (let k = j + 1; k <= i; k++) {
+                            usedLines.add(k);
                         }
                         
-                        // Combine title parts (e.g., "Chapter 1" + "Addiction is the Wound...")
-                        const title = titleParts.join(' – ');
-                        addChapterWithData(title, pageNum);
+                        // Combine title parts with space (single line)
+                        const title = titleParts.join(' ');
+                        addChapterWithData(title, pageNum, isRoman);
                         parsed++;
                     }
-                    i++;
                     continue;
                 }
                 
@@ -759,12 +778,11 @@ Appendix 203"></textarea>
                     const page = parseInt(match[2]);
                     
                     if (title && page) {
-                        addChapterWithData(title, page);
+                        addChapterWithData(title, page, false);
+                        usedLines.add(i);
                         parsed++;
                     }
                 }
-                
-                i++;
             }
             
             if (parsed > 0) {
@@ -810,16 +828,37 @@ Appendix 203"></textarea>
         }
         
         // Add chapter with pre-filled data
-        function addChapterWithData(title, page) {
+        function addChapterWithData(title, page, isRoman = false) {
             const list = document.getElementById('chapter-list');
             const row = document.createElement('div');
             row.className = 'chapter-row';
+            
+            // Format page display - keep as Roman if it was Roman
+            const pageDisplay = isRoman ? toRoman(page).toLowerCase() : page;
+            
             row.innerHTML = `
                 <input type="text" placeholder="Chapter title" class="chapter-title" value="${title.replace(/"/g, '&quot;')}">
-                <input type="number" placeholder="Page" min="1" class="chapter-page" value="${page}">
+                <input type="text" placeholder="Page" class="chapter-page" value="${pageDisplay}">
                 <button class="danger" onclick="this.parentElement.remove()">✕</button>
             `;
             list.appendChild(row);
+        }
+        
+        // Convert number to Roman numeral
+        function toRoman(num) {
+            const romanNumerals = [
+                ['M', 1000], ['CM', 900], ['D', 500], ['CD', 400],
+                ['C', 100], ['XC', 90], ['L', 50], ['XL', 40],
+                ['X', 10], ['IX', 9], ['V', 5], ['IV', 4], ['I', 1]
+            ];
+            let result = '';
+            for (const [letter, value] of romanNumerals) {
+                while (num >= value) {
+                    result += letter;
+                    num -= value;
+                }
+            }
+            return result;
         }
         
         // Clear all chapters
@@ -837,7 +876,7 @@ Appendix 203"></textarea>
             row.className = 'chapter-row';
             row.innerHTML = `
                 <input type="text" placeholder="${isSubchapter ? '    Sub-chapter title' : 'Chapter title'}" class="chapter-title">
-                <input type="number" placeholder="Page" min="1" class="chapter-page">
+                <input type="text" placeholder="Page (e.g., 1 or vii)" class="chapter-page">
                 <button class="danger" onclick="this.parentElement.remove()">✕</button>
             `;
             list.appendChild(row);
@@ -858,9 +897,14 @@ Appendix 203"></textarea>
             const chapters = [];
             document.querySelectorAll('.chapter-row').forEach(row => {
                 const title = row.querySelector('.chapter-title').value.trim();
-                const page = row.querySelector('.chapter-page').value;
-                if (title && page) {
-                    chapters.push({ title, page: parseInt(page) });
+                const pageValue = row.querySelector('.chapter-page').value.trim();
+                if (title && pageValue) {
+                    // Check if it's a Roman numeral or Arabic
+                    const isRoman = /^[ivxlcdm]+$/i.test(pageValue);
+                    const pageNum = romanToArabic(pageValue);
+                    if (pageNum) {
+                        chapters.push({ title, page: pageNum, isRoman });
+                    }
                 }
             });
             
@@ -884,7 +928,15 @@ Appendix 203"></textarea>
                 const outlineItems = [];
                 
                 for (const chapter of chapters) {
-                    const pdfPageIndex = (chapter.page - 1) + (pageOffset - 1);
+                    let pdfPageIndex;
+                    if (chapter.isRoman) {
+                        // Roman numeral = front matter, page number is direct (1-indexed to 0-indexed)
+                        pdfPageIndex = chapter.page - 1;
+                    } else {
+                        // Arabic = main content, apply offset
+                        pdfPageIndex = (chapter.page - 1) + (pageOffset - 1);
+                    }
+                    
                     if (pdfPageIndex >= 0 && pdfPageIndex < numPages) {
                         outlineItems.push({
                             title: chapter.title,

@@ -898,29 +898,30 @@ Appendix 203"></textarea>
                     const context = pdfDocLib.context;
                     const pages = pdfDocLib.getPages();
                     
+                    // Get all page refs from the page tree
+                    const pageTreeRef = pdfDocLib.catalog.get(PDFName.of('Pages'));
+                    const pageTree = context.lookup(pageTreeRef);
+                    const kidsArray = pageTree.get(PDFName.of('Kids'));
+                    
                     // Create outline items
                     const outlineItemRefs = [];
                     
                     for (let i = 0; i < outlineItems.length; i++) {
                         const item = outlineItems[i];
-                        const page = pages[item.pageIndex];
                         
-                        // Get the page reference correctly
-                        const pageRef = page.ref;
+                        // Get page ref from Kids array
+                        const pageRef = kidsArray.get(item.pageIndex);
                         
-                        // Create destination array
-                        const destArray = context.obj([pageRef, PDFName.of('Fit')]);
-                        
-                        const outlineItem = context.obj({
+                        // Create the outline item
+                        const outlineItemDict = context.obj({
                             Title: PDFString.of(item.title),
-                            Parent: null, // Will be set later
-                            Dest: destArray
+                            Dest: context.obj([pageRef, PDFName.of('XYZ'), null, null, null])
                         });
                         
-                        outlineItemRefs.push(context.register(outlineItem));
+                        outlineItemRefs.push(context.register(outlineItemDict));
                     }
                     
-                    // Link outline items
+                    // Link outline items (Prev/Next)
                     for (let i = 0; i < outlineItemRefs.length; i++) {
                         const itemDict = context.lookup(outlineItemRefs[i]);
                         if (i > 0) {
@@ -931,7 +932,7 @@ Appendix 203"></textarea>
                         }
                     }
                     
-                    // Create outline dictionary
+                    // Create outline root dictionary
                     const outlineDict = context.obj({
                         Type: PDFName.of('Outlines'),
                         First: outlineItemRefs[0],

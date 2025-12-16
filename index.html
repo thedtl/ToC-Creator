@@ -824,7 +824,13 @@ Appendix 203"></textarea>
             let parsed = 0;
             
             const flushIfPossible = (titlePart, pageToken, isRoman) => {
-                const pageNum = romanToArabic(pageToken);
+                let pageNum;
+                if (isRoman) {
+                    pageNum = romanToArabic(pageToken); // This now normalizes internally
+                } else {
+                    pageNum = parseInt(pageToken);
+                }
+                
                 const fullTitle = [...titleBuffer, titlePart]
                     .filter(Boolean)
                     .join(' ')
@@ -838,6 +844,9 @@ Appendix 203"></textarea>
                 titleBuffer = [];
             };
             
+            // Pattern for Roman numerals including common OCR errors (1, l, |)
+            const romanPattern = /^[ivxlcdm1l|]+$/i;
+            
             for (const rawLine of lines) {
                 // Remove dot leaders and filler runs
                 let line = rawLine
@@ -847,12 +856,20 @@ Appendix 203"></textarea>
                 
                 if (!line) continue;
                 
-                // Case A: page number only on its own line
-                if (/^(\d+|[ivxlcdm]+)\s*$/i.test(line)) {
-                    const pageToken = line.trim();
-                    const isRoman = /^[ivxlcdm]+$/i.test(pageToken);
-                    flushIfPossible('', pageToken, isRoman);
+                // Case A: page number only on its own line (Arabic or Roman with errors)
+                if (/^(\d+)$/i.test(line)) {
+                    // Pure Arabic number
+                    flushIfPossible('', line, false);
                     continue;
+                }
+                
+                if (romanPattern.test(line)) {
+                    // Looks like a Roman numeral (possibly with OCR errors)
+                    const normalized = normalizeRoman(line);
+                    if (normalized && romanToArabic(normalized)) {
+                        flushIfPossible('', line, true);
+                        continue;
+                    }
                 }
                 
                 // Case B: title + Arabic page number at end
@@ -862,10 +879,11 @@ Appendix 203"></textarea>
                     continue;
                 }
                 
-                // Case C: title + Roman page number at end (front matter)
-                m = line.match(/^(.*?)\s+([ivxlcdm]+)\s*$/i);
+                // Case C: title + Roman page number at end (including OCR errors like x1, v11)
+                m = line.match(/^(.*?)\s+([ivxlcdm1l|]+)\s*$/i);
                 if (m) {
-                    const pageNum = romanToArabic(m[2]);
+                    const normalized = normalizeRoman(m[2]);
+                    const pageNum = romanToArabic(normalized);
                     // Guard: front matter pages usually under 80
                     if (pageNum && pageNum <= 80) {
                         flushIfPossible(m[1].trim(), m[2], true);
@@ -885,17 +903,36 @@ Appendix 203"></textarea>
             }
         }
         
+        // Normalize Roman numeral string (fix OCR confusables)
+        function normalizeRoman(raw) {
+            return raw
+                .trim()
+                .replace(/[|l1]/g, 'I')   // pipe, lowercase L, and 1 -> I
+                .replace(/[0O]/g, '')      // Remove zeros/O (not valid in Roman)
+                .replace(/[^IVXLCDM]/gi, '') // Remove anything that's not a Roman letter
+                .toUpperCase();
+        }
+        
+        // Try to parse a string as a Roman numeral (with normalization)
+        function tryParseRoman(raw) {
+            const normalized = normalizeRoman(raw);
+            if (!normalized) return null;
+            const value = romanToArabic(normalized);
+            return value ? { roman: normalized, value: value } : null;
+        }
+        
         // Convert roman numerals to arabic numbers
         function romanToArabic(str) {
-            const input = str.toUpperCase();
+            // Normalize first to handle OCR errors
+            const input = normalizeRoman(str);
             
             // If it's already a number, return it
-            if (/^\d+$/.test(input)) {
-                return parseInt(input);
+            if (/^\d+$/.test(str.trim())) {
+                return parseInt(str.trim());
             }
             
-            // Check if it's a valid roman numeral
-            if (!/^[IVXLCDM]+$/i.test(input)) {
+            // Check if it's a valid roman numeral after normalization
+            if (!input || !/^[IVXLCDM]+$/.test(input)) {
                 return null;
             }
             

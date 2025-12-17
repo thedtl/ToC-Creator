@@ -343,6 +343,37 @@
             color: #721c24;
             border: 1px solid #f5c6cb;
         }
+        
+        .checkbox-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 15px;
+            padding: 10px;
+            background: #f9f9f9;
+            border-radius: 4px;
+        }
+        
+        .checkbox-row input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            margin: 0;
+            cursor: pointer;
+        }
+        
+        .checkbox-row label {
+            margin: 0;
+            cursor: pointer;
+            font-weight: normal;
+        }
+        
+        .front-matter-options {
+            padding: 15px;
+            background: #f0f7ff;
+            border-radius: 4px;
+            border-left: 3px solid #3498db;
+            margin-bottom: 15px;
+        }
 
         @media (max-width: 600px) {
             .inline-fields {
@@ -374,28 +405,33 @@
     <div class="card hidden" id="step2">
         <h2><span class="step-number">2</span>Set Page Offset</h2>
         <p class="help-text">
-            Set the PDF page numbers where the book's numbering begins.<br>
-            <small>Example: If there's a cover scan, then Roman numerals start on PDF page 2, and "page 1" starts on PDF page 15.</small>
+            Set the PDF page number where the book's page 1 begins.
         </p>
         
-        <div class="inline-fields">
-            <div>
-                <label for="page-offset">Book page 1 is on PDF page:</label>
-                <input type="number" id="page-offset" value="1" min="1">
-            </div>
-            <div>
-                <label for="front-matter-offset">Roman page i is on PDF page:</label>
-                <input type="number" id="front-matter-offset" value="1" min="1">
-                <div class="help-text" style="margin-top: 2px;">Leave as 1 if front matter starts at first PDF page</div>
-            </div>
+        <div>
+            <label for="page-offset">Book page 1 is on PDF page:</label>
+            <input type="number" id="page-offset" value="1" min="1">
         </div>
         
-        <div style="margin-top: 10px;">
-            <label for="front-matter-style">Front matter numbering style:</label>
-            <select id="front-matter-style">
-                <option value="roman">Roman numerals (i, ii, iii...)</option>
-                <option value="arabic">Arabic numerals (1, 2, 3...)</option>
-            </select>
+        <div class="checkbox-row">
+            <input type="checkbox" id="include-front-matter">
+            <label for="include-front-matter">Include front matter (Roman numeral pages) in ToC</label>
+        </div>
+        
+        <div id="front-matter-options" class="front-matter-options hidden">
+            <div style="margin-bottom: 10px;">
+                <label for="front-matter-offset">Roman page i is on PDF page:</label>
+                <input type="number" id="front-matter-offset" value="1" min="1">
+                <div class="help-text" style="margin-top: 2px;">The PDF page where front matter numbering (i, ii, iii...) begins</div>
+            </div>
+            
+            <div>
+                <label for="front-matter-style">Front matter numbering style:</label>
+                <select id="front-matter-style">
+                    <option value="roman">Roman numerals (i, ii, iii...)</option>
+                    <option value="arabic">Arabic numerals (1, 2, 3...)</option>
+                </select>
+            </div>
         </div>
         
         <div class="preview-container">
@@ -480,6 +516,16 @@ Appendix 203"></textarea>
         let processedPdfBytes = null;
         let originalFilename = '';
         let ocrImages = []; // Array of image data URLs
+        
+        // Front matter checkbox toggle
+        document.getElementById('include-front-matter').addEventListener('change', function() {
+            const options = document.getElementById('front-matter-options');
+            if (this.checked) {
+                options.classList.remove('hidden');
+            } else {
+                options.classList.add('hidden');
+            }
+        });
         
         // Set up OCR drop zone
         const dropZone = document.getElementById('ocr-drop-zone');
@@ -815,6 +861,8 @@ Appendix 203"></textarea>
                 return;
             }
             
+            const includeFrontMatter = document.getElementById('include-front-matter').checked;
+            
             const lines = text
                 .split('\n')
                 .map(l => l.trim())
@@ -822,8 +870,16 @@ Appendix 203"></textarea>
             
             let titleBuffer = [];
             let parsed = 0;
+            let skippedRoman = 0;
             
             const flushIfPossible = (titlePart, pageToken, isRoman) => {
+                // Skip Roman numeral pages if front matter is not included
+                if (isRoman && !includeFrontMatter) {
+                    skippedRoman++;
+                    titleBuffer = [];
+                    return;
+                }
+                
                 let pageNum;
                 if (isRoman) {
                     pageNum = romanToArabic(pageToken); // This now normalizes internally
@@ -897,7 +953,11 @@ Appendix 203"></textarea>
             
             if (parsed > 0) {
                 document.getElementById('toc-paste').value = '';
-                alert(`Successfully parsed ${parsed} chapter(s)`);
+                let message = `Successfully parsed ${parsed} chapter(s)`;
+                if (skippedRoman > 0) {
+                    message += `\n(Skipped ${skippedRoman} front matter entries - enable "Include front matter" to include them)`;
+                }
+                alert(message);
             } else {
                 alert('Could not parse any chapters. Check that entries end with a page number, or the page number is on the next line.');
             }
@@ -1050,7 +1110,8 @@ Appendix 203"></textarea>
             }
             
             const pageOffset = parseInt(document.getElementById('page-offset').value);
-            const frontMatterOffset = parseInt(document.getElementById('front-matter-offset').value);
+            const includeFrontMatter = document.getElementById('include-front-matter').checked;
+            const frontMatterOffset = includeFrontMatter ? parseInt(document.getElementById('front-matter-offset').value) : 1;
             const frontMatterStyle = document.getElementById('front-matter-style').value;
             
             // Gather chapters
@@ -1089,10 +1150,13 @@ Appendix 203"></textarea>
                 
                 for (const chapter of chapters) {
                     let pdfPageIndex;
-                    if (chapter.isRoman) {
+                    if (chapter.isRoman && includeFrontMatter) {
                         // Roman numeral = front matter
                         // Use front matter offset: page i is at frontMatterOffset
                         pdfPageIndex = (chapter.page - 1) + (frontMatterOffset - 1);
+                    } else if (chapter.isRoman) {
+                        // Front matter not enabled, skip
+                        continue;
                     } else {
                         // Arabic = main content, apply page offset
                         pdfPageIndex = (chapter.page - 1) + (pageOffset - 1);
@@ -1161,19 +1225,21 @@ Appendix 203"></textarea>
                 const pageLabelsDict = pdfDocLib.context.obj({});
                 const numsArray = [];
                 
-                // Handle pages before front matter (if any) - leave unnumbered or start from 1
-                if (frontMatterOffset > 1) {
-                    numsArray.push(PDFNumber.of(0));
-                    numsArray.push(pdfDocLib.context.obj({ S: PDFName.of('D'), St: PDFNumber.of(1) }));
-                }
-                
-                // Front matter (Roman or Arabic numerals starting at frontMatterOffset)
-                if (frontMatterOffset < pageOffset) {
-                    numsArray.push(PDFNumber.of(frontMatterOffset - 1));
-                    if (frontMatterStyle === 'roman') {
-                        numsArray.push(pdfDocLib.context.obj({ S: PDFName.of('r'), St: PDFNumber.of(1) }));
-                    } else {
+                if (includeFrontMatter) {
+                    // Handle pages before front matter (if any) - leave unnumbered or start from 1
+                    if (frontMatterOffset > 1) {
+                        numsArray.push(PDFNumber.of(0));
                         numsArray.push(pdfDocLib.context.obj({ S: PDFName.of('D'), St: PDFNumber.of(1) }));
+                    }
+                    
+                    // Front matter (Roman or Arabic numerals starting at frontMatterOffset)
+                    if (frontMatterOffset < pageOffset) {
+                        numsArray.push(PDFNumber.of(frontMatterOffset - 1));
+                        if (frontMatterStyle === 'roman') {
+                            numsArray.push(pdfDocLib.context.obj({ S: PDFName.of('r'), St: PDFNumber.of(1) }));
+                        } else {
+                            numsArray.push(pdfDocLib.context.obj({ S: PDFName.of('D'), St: PDFNumber.of(1) }));
+                        }
                     }
                 }
                 

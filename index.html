@@ -418,6 +418,12 @@
     <!-- Step 4: Generate -->
     <div class="card hidden" id="step4">
         <h2><span class="step-number">4</span> Generate PDF</h2>
+        
+        <div style="margin-bottom: 15px;">
+            <label style="font-size: 0.9em;">Output filename:</label>
+            <input type="text" id="output-filename" placeholder="processed_document.pdf" style="margin-bottom: 0;">
+        </div>
+        
         <button onclick="processPdf()" class="success" id="process-btn" style="width: 100%; font-size: 1.1em; padding: 15px;">Download PDF with Bookmarks</button>
         <div id="status" class="status-box hidden"></div>
     </div>
@@ -602,6 +608,10 @@
             document.getElementById('file-info').classList.remove('hidden');
             document.getElementById('url-error').classList.add('hidden');
             pageOffsetInput.max = totalPages;
+            
+            // Set default output filename
+            const baseName = filename.replace(/\.pdf$/i, '');
+            document.getElementById('output-filename').value = `${baseName}_bookmarked.pdf`;
 
             ['step2', 'step3', 'step4'].forEach(id => document.getElementById(id).classList.remove('hidden'));
             
@@ -1278,9 +1288,17 @@
                 const blob = new Blob([data], { type: 'application/pdf' });
                 const url = URL.createObjectURL(blob);
                 
+                // Get custom filename
+                let outputFilename = document.getElementById('output-filename').value.trim();
+                if (!outputFilename) {
+                    outputFilename = 'processed_document.pdf';
+                } else if (!outputFilename.toLowerCase().endsWith('.pdf')) {
+                    outputFilename += '.pdf';
+                }
+                
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = 'processed_document.pdf';
+                a.download = outputFilename;
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
@@ -1350,3 +1368,4 @@
     </script>
 </body>
 </html>
+

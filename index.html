@@ -415,6 +415,20 @@
                 
                 <div id="ocr-preview-container" class="hidden" style="margin-top: 15px;">
                     <div id="ocr-previews" class="ocr-preview-grid"></div>
+                    
+                    <div style="margin: 10px 0; padding: 10px; background: #f9f9f9; border-radius: 4px;">
+                        <label style="font-size: 0.85em; display: flex; align-items: center; gap: 8px;">
+                            Layout mode:
+                            <select id="ocr-psm" style="width: auto; margin: 0; padding: 4px 8px; font-size: 0.85em;">
+                                <option value="6" selected>Single column (default)</option>
+                                <option value="4">Single column, variable sizes</option>
+                                <option value="3">Auto-detect layout</option>
+                                <option value="11">Sparse text</option>
+                                <option value="1">Auto with orientation detection</option>
+                            </select>
+                        </label>
+                    </div>
+                    
                     <div class="button-row" style="margin-top: 10px;">
                         <button onclick="runOcr()" class="success" id="ocr-btn">🔍 Run OCR</button>
                         <button onclick="clearImages()" class="secondary">Clear</button>
@@ -485,6 +499,7 @@
         let historyIndex = -1;
         let isUndoRedo = false;
         let isBulkEdit = false; // Prevent history spam during bulk operations
+        let urlFetchController = null; // AbortController for URL fetches
 
         // --- DOM Elements ---
         const chapterListEl = document.getElementById('chapter-list');
@@ -531,17 +546,37 @@
                     const page = await pdfDoc.getPage(pageNum);
                     const textContent = await page.getTextContent();
                     
-                    // Extract text items and try to preserve line structure
-                    let lastY = null; // Reset for each page
+                    // Sort items by position: y descending (top to bottom), then x ascending (left to right)
+                    // This handles PDFs where text items aren't emitted in visual order
+                    const sortedItems = textContent.items
+                        .filter(item => item.str && item.str.trim() !== '')
+                        .sort((a, b) => {
+                            const yA = a.transform[5];
+                            const yB = b.transform[5];
+                            const xA = a.transform[4];
+                            const xB = b.transform[4];
+                            
+                            // Compare y first (descending - top of page has higher y)
+                            if (Math.abs(yA - yB) > 3) {
+                                return yB - yA;
+                            }
+                            // Same line, compare x (ascending - left to right)
+                            return xA - xB;
+                        });
+                    
+                    // Extract text, using hasEOL when available, falling back to y-threshold
+                    let lastY = null;
                     let lineText = '';
                     
-                    for (const item of textContent.items) {
-                        if (item.str.trim() === '') continue;
+                    for (const item of sortedItems) {
+                        const y = item.transform[5];
+                        const hasExplicitEOL = item.hasEOL === true;
                         
-                        const y = Math.round(item.transform[5]); // Y position
+                        // Determine if this is a new line
+                        const isNewLine = lastY !== null && Math.abs(y - lastY) > 3;
                         
-                        if (lastY !== null && Math.abs(y - lastY) > 5) {
-                            // New line
+                        if (isNewLine) {
+                            // Flush previous line
                             if (lineText.trim()) {
                                 allText += lineText.trim() + '\n';
                             }
@@ -553,7 +588,15 @@
                             }
                             lineText += item.str;
                         }
-                        lastY = y;
+                        
+                        // If PDF explicitly marks end of line, flush now
+                        if (hasExplicitEOL && lineText.trim()) {
+                            allText += lineText.trim() + '\n';
+                            lineText = '';
+                            lastY = null;
+                        } else {
+                            lastY = y;
+                        }
                     }
                     
                     // Add final line of this page
@@ -730,13 +773,20 @@
                 return;
             }
             
+            // Abort any previous fetch in progress
+            if (urlFetchController) {
+                urlFetchController.abort();
+            }
+            urlFetchController = new AbortController();
+            
             btn.disabled = true;
             btn.textContent = 'Loading...';
             
             try {
                 const response = await fetch(url, {
                     mode: 'cors',
-                    credentials: 'omit'
+                    credentials: 'omit',
+                    signal: urlFetchController.signal
                 });
                 
                 if (!response.ok) {
@@ -758,6 +808,11 @@
                 urlInput.value = ''; // Clear on success
                 
             } catch (err) {
+                // Don't show error if it was an intentional abort
+                if (err.name === 'AbortError') {
+                    return;
+                }
+                
                 console.error(err);
                 let msg = err.message;
                 if (err.name === 'TypeError' || err.message.includes('Failed to fetch') || err.message.includes('NetworkError') || err.message.includes('CORS')) {
@@ -765,6 +820,8 @@
                 }
                 errorEl.textContent = msg;
                 errorEl.classList.remove('hidden');
+            } finally {
+                urlFetchController = null;
             }
             
             btn.disabled = false;
@@ -1007,6 +1064,7 @@
             if (!ocrImages.length) return;
             const status = document.getElementById('ocr-status');
             const btn = document.getElementById('ocr-btn');
+            const psmSelect = document.getElementById('ocr-psm');
             
             btn.disabled = true;
             status.className = 'status-box processing';
@@ -1024,9 +1082,10 @@
                     });
                 }
                 
-                // Use sensible defaults for OCR
+                // Set PSM based on user selection
+                const psmValue = psmSelect ? parseInt(psmSelect.value, 10) : 6;
                 await ocrWorker.setParameters({
-                    tessedit_pageseg_mode: 6, // Single column
+                    tessedit_pageseg_mode: psmValue,
                     preserve_interword_spaces: '1'
                 });
 
@@ -1170,9 +1229,13 @@
             const regex = /^(.*?)(?:\s+|[. _-]+)([0-9]+|[ivxlcdm]+)$/i;
             
             // Detect numbered subchapters like "1.1", "2.3.4", "A.1", etc.
+            // Must have at least two segments - "1. Introduction" should NOT be skipped
             function looksLikeSubchapter(title) {
-                return /^\s*(\d+\.)+\d*\s/.test(title) ||  // 1.1, 2.3.4
-                       /^\s*[A-Z]\.\d+/i.test(title);       // A.1, B.2
+                // 1.1 or 2.3.4 etc (requires digit.digit)
+                if (/^\s*\d+\.\d+(?:\.\d+)*\s+/.test(title)) return true;
+                // A.1 or B.2.3 etc (letter.digit)
+                if (/^\s*[A-Z]\.\d+(?:\.\d+)*\s+/i.test(title)) return true;
+                return false;
             }
 
             isBulkEdit = true; // Prevent history spam

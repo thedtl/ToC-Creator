@@ -374,6 +374,10 @@
         <div class="button-row">
             <button onclick="parseToc()">Parse to Chapters</button>
             <button onclick="clearToc()" class="secondary">Clear All</button>
+            <label style="display: flex; align-items: center; gap: 5px; margin-left: 10px; font-size: 13px;">
+                <input type="checkbox" id="filter-subchapters" checked style="width: auto; margin: 0;">
+                Skip numbered subchapters (1.1, 2.3, etc.)
+            </label>
         </div>
         
         <hr style="margin: 20px 0; border: 0; border-top: 1px solid var(--border);">
@@ -506,6 +510,7 @@
                     saveState();
                 }
                 renderPreview(1);
+                validateAllChapters(); // Validate any existing chapters with new PDF
             } catch (err) {
                 alert('Error loading PDF: ' + err.message);
             }
@@ -680,7 +685,7 @@
                 
                 // Set PSM based on user selection
                 await ocrWorker.setParameters({
-                    tessedit_pageseg_mode: psmSelect.value,
+                    tessedit_pageseg_mode: parseInt(psmSelect.value, 10),
                     preserve_interword_spaces: '1'
                 });
 
@@ -709,19 +714,25 @@
                     const title = l.substring(0, lastSpace).trim();
                     let pagePart = l.substring(lastSpace + 1).trim();
                     
-                    // Aggressive Leetspeak conversion on Page Number ONLY
-                    pagePart = pagePart
-                        .replace(/O/gi, '0')
-                        .replace(/l/gi, '1')
-                        .replace(/I/g, '1')
-                        .replace(/i/g, '1')
-                        .replace(/S/gi, '5')
-                        .replace(/Z/gi, '2')
-                        .replace(/B/gi, '8')
-                        .replace(/g/g, '9')
-                        .replace(/q/g, '9')
-                        .replace(/[?]/g, '7')
-                        .replace(/[(){}\[\]]/g, '');
+                    // Only apply leetspeak conversion if it looks like Arabic (has a digit)
+                    // This preserves Roman numerals like "ix", "xvi", etc.
+                    const looksRoman = /^[ivxlcdm]+$/i.test(pagePart);
+                    const hasDigit = /\d/.test(pagePart);
+                    
+                    if (!looksRoman && hasDigit) {
+                        // Aggressive Leetspeak conversion on Page Number ONLY
+                        pagePart = pagePart
+                            .replace(/O/gi, '0')
+                            .replace(/l/gi, '1')
+                            .replace(/I/g, '1')
+                            .replace(/S/gi, '5')
+                            .replace(/Z/gi, '2')
+                            .replace(/B/gi, '8')
+                            .replace(/g/g, '9')
+                            .replace(/q/g, '9')
+                            .replace(/[?]/g, '7')
+                            .replace(/[(){}\[\]]/g, '');
+                    }
 
                     return `${title} ${pagePart}`;
                 }).filter(Boolean).join('\n');
@@ -774,11 +785,19 @@
             }
             
             let parsedCount = 0;
+            let skippedSubchapters = 0;
+            const filterSubchapters = document.getElementById('filter-subchapters').checked;
             
             // Regex: Title followed by separator and page number at end
             // Group 1: Title (everything before)
             // Group 2: Page Number (Arabic or Roman)
             const regex = /^(.*?)(?:\s+|[. _-]+)([0-9]+|[ivxlcdm]+)$/i;
+            
+            // Detect numbered subchapters like "1.1", "2.3.4", "A.1", etc.
+            function looksLikeSubchapter(title) {
+                return /^\s*(\d+\.)+\d*\s/.test(title) ||  // 1.1, 2.3.4
+                       /^\s*[A-Z]\.\d+/i.test(title);       // A.1, B.2
+            }
 
             isBulkEdit = true; // Prevent history spam
             
@@ -788,6 +807,12 @@
                     let title = match[1].trim();
                     // Clean trailing dots from title if regex missed them
                     title = title.replace(/[._-]+$/, '').trim();
+                    
+                    // Skip subchapters if filter is enabled
+                    if (filterSubchapters && looksLikeSubchapter(title)) {
+                        skippedSubchapters++;
+                        continue;
+                    }
                     
                     const pageStr = match[2].trim(); // Fixed: was match[3]
                     const isRoman = /^[ivxlcdm]+$/i.test(pageStr) && isNaN(pageStr);
@@ -807,7 +832,11 @@
             if (parsedCount > 0) {
                 tocPasteEl.value = '';
                 validateAllChapters();
-                alert(`Parsed ${parsedCount} chapters.`);
+                let msg = `Parsed ${parsedCount} chapters.`;
+                if (skippedSubchapters > 0) {
+                    msg += ` (Skipped ${skippedSubchapters} subchapter entries)`;
+                }
+                alert(msg);
             } else {
                 alert('Could not parse chapters. Ensure lines end with a number.');
             }
@@ -999,6 +1028,29 @@
         async function processPdf() {
             if (!pdfBytes) return alert('No PDF loaded');
             
+            // Check if chapters are sorted by page number
+            const rows = Array.from(chapterListEl.querySelectorAll('.chapter-row'));
+            let lastPage = -Infinity;
+            let isUnsorted = false;
+            
+            for (const row of rows) {
+                const pageVal = row.querySelector('.chapter-page').value.trim();
+                if (!pageVal) continue;
+                const currentPage = getPageFromRow(row);
+                if (currentPage < lastPage) {
+                    isUnsorted = true;
+                    break;
+                }
+                lastPage = currentPage;
+            }
+            
+            if (isUnsorted) {
+                const shouldSort = confirm('Chapters are not in page order. Sort them now before generating?\n\nClick OK to sort, or Cancel to proceed without sorting.');
+                if (shouldSort) {
+                    sortChapters();
+                }
+            }
+            
             const btn = document.getElementById('process-btn');
             const status = document.getElementById('status');
             btn.disabled = true;
@@ -1019,9 +1071,9 @@
                 // 1. Create Bookmarks
                 const outlineItems = [];
                 const skippedItems = [];
-                const rows = chapterListEl.querySelectorAll('.chapter-row');
+                const chapterRows = chapterListEl.querySelectorAll('.chapter-row');
                 
-                rows.forEach(row => {
+                chapterRows.forEach(row => {
                     const title = row.querySelector('.chapter-title').value.trim();
                     const pageVal = row.querySelector('.chapter-page').value.trim();
                     if (!title || !pageVal) return;
@@ -1132,13 +1184,28 @@
                 // Show results
                 if (skippedItems.length > 0) {
                     status.className = 'status-box warning';
-                    let html = `PDF Generated with ${outlineItems.length} bookmarks.`;
-                    html += `<div class="skipped-list"><strong>${skippedItems.length} chapter(s) skipped:</strong><ul>`;
+                    
+                    // Build DOM safely to prevent XSS
+                    status.textContent = ''; // Clear
+                    
+                    const mainText = document.createTextNode(`PDF Generated with ${outlineItems.length} bookmarks. `);
+                    status.appendChild(mainText);
+                    
+                    const skippedDiv = document.createElement('div');
+                    skippedDiv.className = 'skipped-list';
+                    
+                    const strongEl = document.createElement('strong');
+                    strongEl.textContent = `${skippedItems.length} chapter(s) skipped:`;
+                    skippedDiv.appendChild(strongEl);
+                    
+                    const ul = document.createElement('ul');
                     for (const item of skippedItems) {
-                        html += `<li>"${item.title}" (page ${item.pageVal}) - ${item.reason}</li>`;
+                        const li = document.createElement('li');
+                        li.textContent = `"${item.title}" (page ${item.pageVal}) - ${item.reason}`;
+                        ul.appendChild(li);
                     }
-                    html += '</ul></div>';
-                    status.innerHTML = html;
+                    skippedDiv.appendChild(ul);
+                    status.appendChild(skippedDiv);
                 } else {
                     status.className = 'status-box success';
                     status.textContent = `PDF Generated with ${outlineItems.length} bookmarks!`;

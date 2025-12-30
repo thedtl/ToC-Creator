@@ -234,8 +234,10 @@
         #preview-canvas {
             border: 1px solid var(--border);
             max-width: 100%;
+            max-height: 500px;
             margin-top: 10px;
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            object-fit: contain;
         }
         
         .status-box {
@@ -342,12 +344,25 @@
             </div>
             
             <div style="flex: 1; min-width: 250px;">
-                <div class="flex-row" style="justify-content: space-between; margin-bottom: 5px;">
-                    <button onclick="previewPage(-1)" class="secondary" style="padding: 5px 10px;">◀</button>
-                    <span id="preview-page-num" style="font-weight: bold;">Page 1</span>
-                    <button onclick="previewPage(1)" class="secondary" style="padding: 5px 10px;">▶</button>
+                <div class="flex-row" style="justify-content: space-between; margin-bottom: 5px; flex-wrap: wrap; gap: 5px;">
+                    <div class="flex-row">
+                        <button onclick="previewPage(-1)" class="secondary" style="padding: 5px 10px;">◀</button>
+                        <span id="preview-page-num" style="font-weight: bold; min-width: 60px; text-align: center;">Page 1</span>
+                        <button onclick="previewPage(1)" class="secondary" style="padding: 5px 10px;">▶</button>
+                    </div>
+                    <div class="flex-row">
+                        <select id="preview-scale" onchange="renderPreview(currentPreviewPage)" style="width: auto; margin: 0; padding: 5px;" title="Preview resolution">
+                            <option value="1">1x</option>
+                            <option value="1.5">1.5x</option>
+                            <option value="2" selected>2x</option>
+                            <option value="3">3x HD</option>
+                            <option value="4">4x Ultra</option>
+                        </select>
+                        <button onclick="savePreviewImage()" class="secondary" style="padding: 5px 10px;" title="Save current page as PNG">📷 Save</button>
+                    </div>
                 </div>
-                <canvas id="preview-canvas"></canvas>
+                <canvas id="preview-canvas" style="cursor: pointer;" onclick="openPreviewFullSize()" title="Click to open full-size in new tab"></canvas>
+                <div style="font-size: 11px; color: #888; margin-top: 4px; text-align: center;">Click image to open full-size • Use higher resolution for better screenshots</div>
             </div>
         </div>
     </div>
@@ -637,7 +652,8 @@
             document.getElementById('preview-page-num').textContent = `Page ${pageNum}`;
             
             const page = await pdfDoc.getPage(pageNum);
-            const viewport = page.getViewport({ scale: 1.5 });
+            const scale = parseFloat(document.getElementById('preview-scale').value) || 1.5;
+            const viewport = page.getViewport({ scale });
             const canvas = document.getElementById('preview-canvas');
             const context = canvas.getContext('2d', { willReadFrequently: true });
             
@@ -650,6 +666,37 @@
         function previewPage(delta) {
             const newPage = currentPreviewPage + delta;
             if (newPage >= 1 && newPage <= totalPages) renderPreview(newPage);
+        }
+        
+        // Open current preview as full-size image in new tab
+        function openPreviewFullSize() {
+            const canvas = document.getElementById('preview-canvas');
+            const dataUrl = canvas.toDataURL('image/png');
+            const newTab = window.open();
+            if (newTab) {
+                newTab.document.write(`
+                    <html>
+                    <head><title>Page ${currentPreviewPage} Preview</title></head>
+                    <body style="margin: 0; display: flex; justify-content: center; background: #333;">
+                        <img src="${dataUrl}" style="max-width: 100%; height: auto;">
+                    </body>
+                    </html>
+                `);
+                newTab.document.close();
+            }
+        }
+        
+        // Save current preview as PNG file
+        function savePreviewImage() {
+            const canvas = document.getElementById('preview-canvas');
+            const dataUrl = canvas.toDataURL('image/png');
+            
+            const a = document.createElement('a');
+            a.href = dataUrl;
+            a.download = `page_${currentPreviewPage}.png`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
         }
 
         // --- OCR Logic (Aggressive) ---
@@ -1368,4 +1415,3 @@
     </script>
 </body>
 </html>
-

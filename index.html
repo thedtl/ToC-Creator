@@ -392,6 +392,14 @@
                             <option value="1">Auto + OSD</option>
                         </select>
                     </label>
+                    <label>
+                        Image processing:
+                        <select id="ocr-preprocess">
+                            <option value="aggressive">Aggressive (high contrast)</option>
+                            <option value="light" selected>Light (grayscale only)</option>
+                            <option value="none">None (original)</option>
+                        </select>
+                    </label>
                 </div>
                 
                 <div class="button-row" style="margin-top: 10px;">
@@ -785,8 +793,8 @@
             updateOcrPreviews();
         }
 
-        // AGGRESSIVE PRE-PROCESSING
-        function preprocessImage(imageSource) {
+        // PREPROCESSING with different modes
+        function preprocessImage(imageSource, mode = 'light') {
             return new Promise((resolve) => {
                 const img = new Image();
                 img.onload = () => {
@@ -800,20 +808,35 @@
                     ctx.fillRect(0, 0, canvas.width, canvas.height);
                     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
                     
+                    if (mode === 'none') {
+                        // No processing, just scaled
+                        resolve(canvas.toDataURL('image/png'));
+                        return;
+                    }
+                    
                     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
                     const data = imageData.data;
                     
-                    let totalBrightness = 0;
-                    for (let i = 0; i < data.length; i += 4) {
-                        totalBrightness += (data[i] + data[i+1] + data[i+2]) / 3;
-                    }
-                    const avg = totalBrightness / (data.length / 4);
-                    const threshold = avg * 0.85;
-                    
-                    for (let i = 0; i < data.length; i += 4) {
-                        const gray = 0.2126 * data[i] + 0.7152 * data[i+1] + 0.0722 * data[i+2];
-                        const val = gray < threshold ? 0 : 255;
-                        data[i] = data[i+1] = data[i+2] = val;
+                    if (mode === 'light') {
+                        // Grayscale only - preserves more detail
+                        for (let i = 0; i < data.length; i += 4) {
+                            const gray = 0.2126 * data[i] + 0.7152 * data[i+1] + 0.0722 * data[i+2];
+                            data[i] = data[i+1] = data[i+2] = gray;
+                        }
+                    } else if (mode === 'aggressive') {
+                        // Binarization - high contrast black/white
+                        let totalBrightness = 0;
+                        for (let i = 0; i < data.length; i += 4) {
+                            totalBrightness += (data[i] + data[i+1] + data[i+2]) / 3;
+                        }
+                        const avg = totalBrightness / (data.length / 4);
+                        const threshold = avg * 0.85;
+                        
+                        for (let i = 0; i < data.length; i += 4) {
+                            const gray = 0.2126 * data[i] + 0.7152 * data[i+1] + 0.0722 * data[i+2];
+                            const val = gray < threshold ? 0 : 255;
+                            data[i] = data[i+1] = data[i+2] = val;
+                        }
                     }
                     
                     ctx.putImageData(imageData, 0, 0);
@@ -852,9 +875,11 @@
                 });
 
                 let fullText = '';
+                const preprocessMode = document.getElementById('ocr-preprocess').value;
+                
                 for (let i = 0; i < ocrImages.length; i++) {
-                    status.textContent = `Processing image ${i+1}/${ocrImages.length} (Binarizing)...`;
-                    const processedImg = await preprocessImage(ocrImages[i]);
+                    status.textContent = `Processing image ${i+1}/${ocrImages.length}...`;
+                    const processedImg = await preprocessImage(ocrImages[i], preprocessMode);
                     
                     status.textContent = `Reading text from image ${i+1}...`;
                     const result = await ocrWorker.recognize(processedImg);
@@ -866,8 +891,35 @@
                     let l = line.trim();
                     if (!l) return '';
                     
-                    // Remove dot leaders
+                    // Remove actual dot/dash leaders
                     l = l.replace(/([._-]\s*){2,}/g, ' ');
+                    
+                    // Remove garbled dot leaders - OCR often misreads dots as repeated letters
+                    // Pattern: long sequences of mostly vowels/common chars that look like garbage
+                    // e.g., "ccoooenrerieeeeencniseseienemensesessresaseensisseseeeee"
+                    l = l.replace(/\b[oOeEiIcCnNrRsStTaA]{8,}\b/g, ' ');
+                    
+                    // Also catch mixed garbage patterns with repeated subsequences
+                    // If a "word" is 15+ chars and has lots of repeated letters, it's probably garbage
+                    l = l.replace(/\b\S{15,}\b/g, (match) => {
+                        // Count how many characters are repeated (appear 3+ times)
+                        const charCounts = {};
+                        for (const c of match.toLowerCase()) {
+                            charCounts[c] = (charCounts[c] || 0) + 1;
+                        }
+                        const repeatedChars = Object.values(charCounts).filter(n => n >= 3).length;
+                        const uniqueChars = Object.keys(charCounts).length;
+                        
+                        // If most chars are heavily repeated and low variety, it's garbage
+                        // e.g., "eeeennnsssiiioooo" has few unique chars but many repeats
+                        if (repeatedChars >= 3 && uniqueChars <= match.length / 3) {
+                            return ' ';
+                        }
+                        return match;
+                    });
+                    
+                    // Clean up multiple spaces
+                    l = l.replace(/\s+/g, ' ').trim();
                     
                     // Find last space to isolate page number
                     const lastSpace = l.lastIndexOf(' ');

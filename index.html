@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PDF ToC Tool (Aggressive OCR Edition)</title>
+    <title>PDF ToC Tool</title>
     <!-- Libraries -->
     <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -292,7 +292,7 @@
     </style>
 </head>
 <body>
-    <h1>📚 PDF ToC Tool <span style="font-size: 0.6em; color: #666; font-weight: normal;">(Aggressive OCR)</span></h1>
+    <h1>📚 PDF ToC Tool</h1>
     
     <!-- Step 1: Upload -->
     <div class="card">
@@ -371,55 +371,74 @@
     <div class="card hidden" id="step3">
         <h2><span class="step-number">3</span> Table of Contents</h2>
         
-        <!-- OCR Section -->
-        <div style="margin-bottom: 20px;">
-            <div class="ocr-input-area" id="ocr-drop-zone">
-                <input type="file" id="toc-image" accept="image/*" multiple style="display: none;">
-                <div style="font-size: 1.1em; font-weight: 500; margin-bottom: 5px;">Paste Screenshot (Ctrl+V)</div>
-                <div style="color: #666;">or click to upload images</div>
+        <!-- Primary: Extract from PDF -->
+        <div style="background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+            <div style="font-weight: 600; margin-bottom: 10px; color: #0369a1;">📄 Extract ToC from PDF</div>
+            <p style="font-size: 0.9em; color: #666; margin-bottom: 15px;">
+                Use the preview above to find your Table of Contents pages, then enter the page range below.
+            </p>
+            
+            <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap; margin-bottom: 10px;">
+                <label style="display: flex; align-items: center; gap: 5px; font-size: 0.9em;">
+                    ToC starts on page:
+                    <input type="number" id="toc-start-page" value="1" min="1" style="width: 70px; margin: 0; padding: 5px;">
+                </label>
+                <label style="display: flex; align-items: center; gap: 5px; font-size: 0.9em;">
+                    ToC ends on page:
+                    <input type="number" id="toc-end-page" value="1" min="1" style="width: 70px; margin: 0; padding: 5px;">
+                </label>
             </div>
             
-            <div id="ocr-preview-container" class="hidden" style="margin-top: 15px;">
-                <div id="ocr-previews" class="ocr-preview-grid"></div>
-                
-                <div class="ocr-settings">
-                    <label>
-                        Layout:
-                        <select id="ocr-psm">
-                            <option value="6" selected>Single column (default)</option>
-                            <option value="4">Single column, variable text</option>
-                            <option value="3">Auto-detect</option>
-                            <option value="1">Auto + OSD</option>
-                        </select>
-                    </label>
-                    <label>
-                        Image processing:
-                        <select id="ocr-preprocess">
-                            <option value="aggressive">Aggressive (high contrast)</option>
-                            <option value="light" selected>Light (grayscale only)</option>
-                            <option value="none">None (original)</option>
-                        </select>
-                    </label>
-                </div>
-                
-                <div class="button-row" style="margin-top: 10px;">
-                    <button onclick="runOcr()" class="success" id="ocr-btn">🔍 Extract Text (Aggressive)</button>
-                    <button onclick="clearImages()" class="secondary">Clear Images</button>
-                </div>
-                <div id="ocr-status" class="status-box hidden"></div>
+            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                <button onclick="setTocToCurrentPage()" class="secondary" style="padding: 8px 12px; font-size: 0.85em;">Set to current page</button>
+                <button onclick="extractTocFromPdf()" class="success" id="extract-btn" style="padding: 8px 16px;">Extract ToC</button>
+                <span id="page-range-hint" style="font-size: 0.85em; color: #666;"></span>
             </div>
+            
+            <div id="extract-status" class="status-box hidden" style="margin-top: 10px;"></div>
         </div>
         
-        <!-- Text Area -->
-        <label>Parsed Text (Editable):</label>
-        <textarea id="toc-paste" rows="8" placeholder="Chapter 1 ... 5"></textarea>
-        <div class="button-row">
-            <button onclick="parseToc()">Parse to Chapters</button>
-            <button onclick="clearToc()" class="secondary">Clear All</button>
-            <label style="display: flex; align-items: center; gap: 5px; margin-left: 10px; font-size: 13px;">
-                <input type="checkbox" id="filter-subchapters" checked style="width: auto; margin: 0;">
-                Skip numbered subchapters (1.1, 2.3, etc.)
-            </label>
+        <!-- Fallback: OCR (collapsed by default) -->
+        <details style="margin-bottom: 20px;">
+            <summary style="cursor: pointer; font-weight: 500; color: #666; padding: 10px; background: #f5f5f5; border-radius: 4px;">
+                ⚙️ Advanced: Use OCR (for scanned PDFs without text layer)
+            </summary>
+            <div style="padding: 15px; border: 1px solid #e5e5e5; border-top: none; border-radius: 0 0 4px 4px;">
+                <p style="font-size: 0.85em; color: #888; margin-bottom: 15px;">
+                    Only use this if the PDF is a pure image scan. Most PDFs have extractable text.
+                </p>
+                <div class="ocr-input-area" id="ocr-drop-zone">
+                    <input type="file" id="toc-image" accept="image/*" multiple style="display: none;">
+                    <div style="font-size: 1em; font-weight: 500; margin-bottom: 5px;">Paste Screenshot (Ctrl+V)</div>
+                    <div style="color: #666; font-size: 0.9em;">or click to upload images</div>
+                </div>
+                
+                <div id="ocr-preview-container" class="hidden" style="margin-top: 15px;">
+                    <div id="ocr-previews" class="ocr-preview-grid"></div>
+                    <div class="button-row" style="margin-top: 10px;">
+                        <button onclick="runOcr()" class="success" id="ocr-btn">🔍 Run OCR</button>
+                        <button onclick="clearImages()" class="secondary">Clear</button>
+                    </div>
+                    <div id="ocr-status" class="status-box hidden"></div>
+                </div>
+            </div>
+        </details>
+        
+        <!-- Extracted/OCR'd Text -->
+        <div id="text-review-section" class="hidden">
+            <label style="font-weight: 500;">Review extracted text:</label>
+            <p style="font-size: 0.85em; color: #888; margin-bottom: 5px;">
+                Edit if needed, then click "Parse to Chapters"
+            </p>
+            <textarea id="toc-paste" rows="8" placeholder="Extracted text will appear here..."></textarea>
+            <div class="button-row">
+                <button onclick="parseToc()" class="success">Parse to Chapters</button>
+                <button onclick="clearText()" class="secondary">Clear</button>
+                <label style="display: flex; align-items: center; gap: 5px; margin-left: 10px; font-size: 13px;">
+                    <input type="checkbox" id="filter-subchapters" checked style="width: auto; margin: 0;">
+                    Skip subchapters (1.1, 2.3)
+                </label>
+            </div>
         </div>
         
         <hr style="margin: 20px 0; border: 0; border-top: 1px solid var(--border);">
@@ -431,7 +450,7 @@
             <div class="separator"></div>
             <button onclick="sortChapters()" class="secondary" style="padding: 5px 10px;">Sort by Page</button>
             <button onclick="validateAllChapters()" class="secondary" style="padding: 5px 10px;">Validate</button>
-            <span style="margin-left: auto; font-size: 0.8em; color: #666;">Drag to reorder • ↑↓ navigate</span>
+            <span style="margin-left: auto; font-size: 0.8em; color: #666;">Drag to reorder</span>
         </div>
         
         <div id="chapter-list"></div>
@@ -475,6 +494,137 @@
         const includeFrontMatterCheckbox = document.getElementById('include-front-matter');
         const dropZone = document.getElementById('ocr-drop-zone');
         const tocImageInput = document.getElementById('toc-image');
+        const tocStartPageInput = document.getElementById('toc-start-page');
+        const tocEndPageInput = document.getElementById('toc-end-page');
+
+        // --- PDF Text Extraction ---
+        async function extractTocFromPdf() {
+            if (!pdfDoc) {
+                alert('Please load a PDF first');
+                return;
+            }
+            
+            const startPage = parseInt(tocStartPageInput.value) || 1;
+            const endPage = parseInt(tocEndPageInput.value) || startPage;
+            const status = document.getElementById('extract-status');
+            const btn = document.getElementById('extract-btn');
+            
+            if (startPage < 1 || endPage > totalPages || startPage > endPage) {
+                status.className = 'status-box error';
+                status.textContent = `Invalid page range. PDF has ${totalPages} pages.`;
+                status.classList.remove('hidden');
+                return;
+            }
+            
+            btn.disabled = true;
+            btn.textContent = 'Extracting...';
+            status.className = 'status-box processing';
+            status.textContent = 'Extracting text from PDF...';
+            status.classList.remove('hidden');
+            
+            try {
+                let allText = '';
+                
+                for (let pageNum = startPage; pageNum <= endPage; pageNum++) {
+                    status.textContent = `Extracting page ${pageNum} of ${endPage}...`;
+                    
+                    const page = await pdfDoc.getPage(pageNum);
+                    const textContent = await page.getTextContent();
+                    
+                    // Extract text items and try to preserve line structure
+                    let lastY = null; // Reset for each page
+                    let lineText = '';
+                    
+                    for (const item of textContent.items) {
+                        if (item.str.trim() === '') continue;
+                        
+                        const y = Math.round(item.transform[5]); // Y position
+                        
+                        if (lastY !== null && Math.abs(y - lastY) > 5) {
+                            // New line
+                            if (lineText.trim()) {
+                                allText += lineText.trim() + '\n';
+                            }
+                            lineText = item.str;
+                        } else {
+                            // Same line - add space if needed
+                            if (lineText && !lineText.endsWith(' ') && !item.str.startsWith(' ')) {
+                                lineText += ' ';
+                            }
+                            lineText += item.str;
+                        }
+                        lastY = y;
+                    }
+                    
+                    // Add final line of this page
+                    if (lineText.trim()) {
+                        allText += lineText.trim() + '\n';
+                    }
+                    allText += '\n'; // Blank line between pages
+                }
+                
+                // Check if we got useful text
+                const cleanedText = allText.trim();
+                if (cleanedText.length < 20) {
+                    status.className = 'status-box warning';
+                    status.textContent = 'Very little text found. This PDF may be a scanned image. Try the OCR option in "Advanced" section below.';
+                } else {
+                    status.className = 'status-box success';
+                    status.textContent = `Extracted text from ${endPage - startPage + 1} page(s). Review below and click "Parse to Chapters".`;
+                }
+                
+                // Show the text review section
+                tocPasteEl.value = cleanedText;
+                document.getElementById('text-review-section').classList.remove('hidden');
+                
+            } catch (err) {
+                console.error(err);
+                status.className = 'status-box error';
+                status.textContent = 'Error extracting text: ' + err.message;
+            }
+            
+            btn.disabled = false;
+            btn.textContent = 'Extract ToC';
+        }
+        
+        function clearText() {
+            tocPasteEl.value = '';
+        }
+        
+        function setTocToCurrentPage() {
+            // If start is not set or current page is before start, set start
+            // Otherwise set end to current page (useful for multi-page ToCs)
+            const start = parseInt(tocStartPageInput.value) || 0;
+            if (start === 0 || currentPreviewPage < start) {
+                tocStartPageInput.value = currentPreviewPage;
+                tocEndPageInput.value = currentPreviewPage;
+            } else {
+                tocEndPageInput.value = currentPreviewPage;
+            }
+            updatePageRangeHint();
+        }
+        
+        function updatePageRangeHint() {
+            const start = parseInt(tocStartPageInput.value) || 1;
+            const end = parseInt(tocEndPageInput.value) || 1;
+            const hint = document.getElementById('page-range-hint');
+            if (!hint) return;
+            
+            if (start === end) {
+                hint.textContent = `(1 page)`;
+            } else if (end > start) {
+                hint.textContent = `(${end - start + 1} pages)`;
+            } else {
+                hint.textContent = `(invalid range)`;
+                hint.style.color = '#dc2626';
+                return;
+            }
+            hint.style.color = '#666';
+        }
+        
+        // Update hint when page inputs change
+        tocStartPageInput.addEventListener('input', updatePageRangeHint);
+        tocEndPageInput.addEventListener('input', updatePageRangeHint);
 
         // --- History System ---
         function saveState() {
@@ -635,6 +785,13 @@
             // Set default output filename
             const baseName = filename.replace(/\.pdf$/i, '');
             document.getElementById('output-filename').value = `${baseName}_bookmarked.pdf`;
+            
+            // Set ToC page range defaults
+            tocStartPageInput.max = totalPages;
+            tocEndPageInput.max = totalPages;
+            tocStartPageInput.value = 1;
+            tocEndPageInput.value = Math.min(3, totalPages); // Default to first 3 pages
+            updatePageRangeHint();
 
             ['step2', 'step3', 'step4'].forEach(id => document.getElementById(id).classList.remove('hidden'));
             
@@ -850,7 +1007,6 @@
             if (!ocrImages.length) return;
             const status = document.getElementById('ocr-status');
             const btn = document.getElementById('ocr-btn');
-            const psmSelect = document.getElementById('ocr-psm');
             
             btn.disabled = true;
             status.className = 'status-box processing';
@@ -868,18 +1024,17 @@
                     });
                 }
                 
-                // Set PSM based on user selection
+                // Use sensible defaults for OCR
                 await ocrWorker.setParameters({
-                    tessedit_pageseg_mode: parseInt(psmSelect.value, 10),
+                    tessedit_pageseg_mode: 6, // Single column
                     preserve_interword_spaces: '1'
                 });
 
                 let fullText = '';
-                const preprocessMode = document.getElementById('ocr-preprocess').value;
                 
                 for (let i = 0; i < ocrImages.length; i++) {
                     status.textContent = `Processing image ${i+1}/${ocrImages.length}...`;
-                    const processedImg = await preprocessImage(ocrImages[i], preprocessMode);
+                    const processedImg = await preprocessImage(ocrImages[i], 'light');
                     
                     status.textContent = `Reading text from image ${i+1}...`;
                     const result = await ocrWorker.recognize(processedImg);
@@ -952,8 +1107,9 @@
                 }).filter(Boolean).join('\n');
 
                 tocPasteEl.value = cleanedLines;
+                document.getElementById('text-review-section').classList.remove('hidden');
                 status.className = 'status-box success';
-                status.textContent = 'OCR Complete! Text extracted and cleaned.';
+                status.textContent = 'OCR Complete! Review text below and click "Parse to Chapters".';
                 clearImages();
 
             } catch (err) {
@@ -967,9 +1123,15 @@
         // --- Parsing Logic (with wrapped line joining) ---
         function parseToc() {
             const text = tocPasteEl.value;
-            if (!text.trim()) return alert('Paste text first');
+            if (!text.trim()) return alert('Extract or paste text first');
 
-            let lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+            let lines = text.split('\n').map(l => {
+                let cleaned = l.trim();
+                // Remove dot leaders (common in PDF-extracted ToCs)
+                cleaned = cleaned.replace(/\.{2,}/g, ' ');
+                cleaned = cleaned.replace(/\s{2,}/g, ' ');
+                return cleaned;
+            }).filter(Boolean);
             
             // Join wrapped lines: if a line doesn't end with a number, prepend it to the next line
             const joinedLines = [];
@@ -1019,7 +1181,7 @@
                 const match = line.match(regex);
                 if (match) {
                     let title = match[1].trim();
-                    // Clean trailing dots from title if regex missed them
+                    // Clean trailing dots/dashes from title
                     title = title.replace(/[._-]+$/, '').trim();
                     
                     // Skip subchapters if filter is enabled
@@ -1028,7 +1190,7 @@
                         continue;
                     }
                     
-                    const pageStr = match[2].trim(); // Fixed: was match[3]
+                    const pageStr = match[2].trim();
                     const isRoman = /^[ivxlcdm]+$/i.test(pageStr) && isNaN(pageStr);
                     
                     let pageNum = isRoman ? romanToArabic(pageStr) : parseInt(pageStr, 10);
@@ -1045,6 +1207,7 @@
 
             if (parsedCount > 0) {
                 tocPasteEl.value = '';
+                document.getElementById('text-review-section').classList.add('hidden');
                 validateAllChapters();
                 let msg = `Parsed ${parsedCount} chapters.`;
                 if (skippedSubchapters > 0) {
@@ -1052,7 +1215,7 @@
                 }
                 alert(msg);
             } else {
-                alert('Could not parse chapters. Ensure lines end with a number.');
+                alert('Could not parse chapters. Make sure each entry has a page number.');
             }
         }
 

@@ -979,6 +979,97 @@
       await autoDetectStructure();
     }
 
+    // --- Auto-Detect Helpers ---
+    function normalizeTocLinesForDetection(lines) {
+      return (lines || [])
+        .map(l => (l || "").trim())
+        .filter(Boolean)
+        .map(l => l.replace(/\.{2,}/g, " ").replace(/\s{2,}/g, " ").trim());
+    }
+
+    function containsTocKeyword(rawText) {
+      return /(table of contents|contents|índice|indice|contenido|sommaire|inhalt|capitoli|sommario|tavola|agenda)\b/i
+        .test(rawText || "");
+    }
+
+    function containsDotLeaders(rawText) {
+      return /(\.{4,}|(\.\s){6,})/.test(rawText || "");
+    }
+
+    function isListLikeByLineEndings(lines) {
+      const clean = (lines || []).map(l => l.trim()).filter(Boolean);
+      if (clean.length < 6) return false;
+      const endsWithPage = clean.filter(l => /(\d+|[ivxlcdm]+)\.?$/i.test(l)).length;
+      return endsWithPage >= 4 && (endsWithPage / clean.length) >= 0.35;
+    }
+
+    function dryParseTocFromLines(lines, romanIsFrontMatter) {
+      const cleaned = normalizeTocLinesForDetection(lines);
+      if (cleaned.length === 0) return [];
+      const format = detectTocFormat(cleaned);
+      if (format === "page-first") {
+        return parsePageFirstFormat(cleaned, romanIsFrontMatter).entries;
+      }
+      return parsePageLastFormat(cleaned, romanIsFrontMatter);
+    }
+
+    async function scoreTocPage(pageNum) {
+      const romanIsFrontMatter = $("roman-is-frontmatter")?.checked ?? true;
+      const lines = await extractTextLinesFromPage(pageNum);
+      const raw = (lines || []).join("\n");
+      const entries = dryParseTocFromLines(lines, romanIsFrontMatter);
+      const entryCount = entries.length;
+
+      let score = entryCount;
+      if (containsTocKeyword(raw)) score += 6;
+      if (containsDotLeaders(raw)) score += 2;
+      if (isListLikeByLineEndings(lines)) score += 2;
+
+      return { pageNum, score, entryCount, hasKeyword: containsTocKeyword(raw) };
+    }
+
+    async function autoFindTocRange(scanStart, scanEnd) {
+      const scores = [];
+      for (let p = scanStart; p <= scanEnd; p++) {
+        scores.push(await scoreTocPage(p));
+      }
+
+      let best = scores[0] || null;
+      for (const s of scores) {
+        if (!best || s.score > best.score) best = s;
+      }
+      if (!best) return null;
+
+      const minOk = (best.entryCount >= 5) || (best.hasKeyword && best.score >= 6);
+      if (!minOk) return null;
+
+      if (best.hasKeyword && best.entryCount < 3) {
+        const next = scores.find(s => s.pageNum === best.pageNum + 1);
+        if (next && next.entryCount > best.entryCount) best = next;
+      }
+
+      const cutoff = Math.max(3, Math.floor(best.score * 0.55));
+      let start = best.pageNum;
+      let end = best.pageNum;
+      const byPage = new Map(scores.map(s => [s.pageNum, s]));
+
+      while (start > scanStart) {
+        const prev = byPage.get(start - 1);
+        if (!prev) break;
+        if (prev.score >= cutoff) start -= 1;
+        else break;
+      }
+
+      while (end < scanEnd) {
+        const nxt = byPage.get(end + 1);
+        if (!nxt) break;
+        if (nxt.score >= cutoff) end += 1;
+        else break;
+      }
+
+      return { start, end, best };
+    }
+
     // --- Improved Auto-Detection Logic ---
     async function autoDetectStructure() {
       const status = $("file-info");
@@ -1048,47 +1139,18 @@
           }
         }
 
-        // --- 2. ToC Detection (Density & Keyword Method) ---
-        const tocKeywords = /^\s*(table of contents|contents|índice|indice|contenido|sommaire|inhalt|agenda)\s*$/i;
-        
-        for (let i = 1; i <= maxScan; i++) {
-          const lines = await extractTextLinesFromPage(i);
-          const cleanLines = lines.map(l => l.trim()).filter(l => l.length > 0);
-          
-          const hasTocHeader = cleanLines.some(l => tocKeywords.test(l));
-          const linesWithNumbers = cleanLines.filter(l => /\d+$/.test(l));
-          const density = linesWithNumbers.length / cleanLines.length;
-          const isListLike = linesWithNumbers.length >= 3 && density > 0.3;
+        // --- 2. ToC Detection (Parse Scoring Method) ---
+        let tocRange = null;
+        let preferredEnd = detectedOffset ? Math.min(maxScan, detectedOffset + 2) : Math.min(maxScan, 20);
+        tocRange = await autoFindTocRange(1, preferredEnd);
 
-          if (!tocStart) {
-            if (hasTocHeader) {
-              tocStart = i;
-              if (!isListLike) {
-                 const nextLines = await extractTextLinesFromPage(i + 1);
-                 const nextWithNum = nextLines.filter(l => /\d+$/.test(l.trim()));
-                 if (nextWithNum.length >= 3) {
-                   tocEnd = i + 1; 
-                 } else {
-                   tocEnd = i;
-                 }
-              } else {
-                tocEnd = i;
-              }
-            } else if (isListLike && i < 15) {
-              tocStart = i;
-              tocEnd = i;
-            }
-          } else {
-            if (isListLike) {
-              tocEnd = i;
-            } else if (hasTocHeader) {
-              tocEnd = i;
-            } else {
-              if (cleanLines.length > 3) {
-                break; 
-              }
-            }
-          }
+        if (!tocRange) {
+          tocRange = await autoFindTocRange(1, maxScan);
+        }
+
+        if (tocRange) {
+          tocStart = tocRange.start;
+          tocEnd = tocRange.end;
         }
 
         // --- 3. Apply Results ---

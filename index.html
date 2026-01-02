@@ -979,77 +979,111 @@
       await autoDetectStructure();
     }
 
-    // --- Auto-Detection Logic (Fixed) ---
+    // --- Improved Auto-Detection Logic ---
     async function autoDetectStructure() {
       const status = $("file-info");
       const originalStatus = status.textContent.split(" | ")[0];
-      status.textContent = originalStatus + " | 🔍 Auto-detecting...";
+      status.textContent = originalStatus + " | 🔍 Scanning...";
       
       try {
-        const maxScan = Math.min(25, totalPages);
+        const maxScan = Math.min(50, totalPages);
         let detectedOffset = null;
         let tocStart = null;
         let tocEnd = null;
 
-        // 1. Try PDF Metadata (PageLabels)
-        const pageLabels = await pdfDoc.getPageLabels(); 
-        if (pageLabels && pageLabels.length > 0) {
-          const index = pageLabels.findIndex(l => l === "1");
-          if (index !== -1) {
-            detectedOffset = index + 1;
+        // --- 1. Page Offset Detection (Sequence Method) ---
+        const getPageNumCandidates = async (pageNum) => {
+          const page = await pdfDoc.getPage(pageNum);
+          const textContent = await page.getTextContent();
+          const viewport = page.getViewport({ scale: 1 });
+          const h = viewport.height;
+          
+          const isHeader = (y) => y > h * 0.85;
+          const isFooter = (y) => y < h * 0.15;
+
+          return textContent.items
+            .filter(item => {
+              const y = item.transform[5];
+              const str = item.str.trim().replace(/^[-[\]\s]+|[-[\]\s]+$/g, '');
+              return (isHeader(y) || isFooter(y)) && /^\d+$/.test(str);
+            })
+            .map(item => ({
+              val: parseInt(item.str.trim().replace(/^[-[\]\s]+|[-[\]\s]+$/g, ''), 10),
+              y: item.transform[5]
+            }));
+        };
+
+        for (let i = 1; i < maxScan; i++) {
+          if (detectedOffset) break;
+          const candidates = await getPageNumCandidates(i);
+          const ones = candidates.filter(c => c.val === 1);
+
+          if (ones.length > 0) {
+            const nextCandidates = await getPageNumCandidates(i + 1);
+            for (const one of ones) {
+              const match = nextCandidates.find(c => 
+                c.val === 2 && Math.abs(c.y - one.y) < 50
+              );
+              if (match) {
+                detectedOffset = i;
+                break;
+              }
+            }
           }
         }
 
-        // 2. Text Analysis Loop
-        let tocPatternActive = false;
-
-        for (let i = 1; i <= maxScan; i++) {
-          // A. Page 1 Detection (Needs Coordinates)
-          if (!detectedOffset) {
-            const page = await pdfDoc.getPage(i);
-            const viewport = page.getViewport({ scale: 1 });
-            const height = viewport.height;
-            const textContent = await page.getTextContent();
-            
-            const footerThreshold = height * 0.15;
-            const headerThreshold = height * 0.90;
-
-            const potentialPageNum = textContent.items.find(item => {
-              // PDF.js transform: [scaleX, skewY, skewX, scaleY, translateX, translateY]
-              const y = item.transform[5]; 
-              const isFooter = y < footerThreshold;
-              const isHeader = y > headerThreshold;
-              return (isFooter || isHeader) && item.str.trim() === "1";
-            });
-
-            if (potentialPageNum) detectedOffset = i;
+        if (!detectedOffset) {
+          const pageLabels = await pdfDoc.getPageLabels(); 
+          if (pageLabels && pageLabels.length > 0) {
+            const index = pageLabels.findIndex(l => l === "1");
+            if (index !== -1) detectedOffset = index + 1;
           }
+        }
 
-          // B. ToC Detection (Needs Clean Lines)
-          // Use the robust line extractor instead of raw items
+        // --- 2. ToC Detection (Density & Keyword Method) ---
+        const tocKeywords = /^\s*(table of contents|contents|índice|indice|contenido|sommaire|inhalt|agenda)\s*$/i;
+        
+        for (let i = 1; i <= maxScan; i++) {
           const lines = await extractTextLinesFromPage(i);
+          const cleanLines = lines.map(l => l.trim()).filter(l => l.length > 0);
           
-          const tocHeaderRegex = /^\s*(table of contents|contents|índice|indice|contenido|sommaire|inhalt)\s*$/i;
-          const hasHeader = lines.some(line => tocHeaderRegex.test(line.trim()));
-          const listLines = lines.filter(line => /\.*\s*\d+$/.test(line.trim()));
-          const isListLike = listLines.length > 3;
+          const hasTocHeader = cleanLines.some(l => tocKeywords.test(l));
+          const linesWithNumbers = cleanLines.filter(l => /\d+$/.test(l));
+          const density = linesWithNumbers.length / cleanLines.length;
+          const isListLike = linesWithNumbers.length >= 3 && density > 0.3;
 
           if (!tocStart) {
-            if (hasHeader || (isListLike && i < 10)) {
+            if (hasTocHeader) {
+              tocStart = i;
+              if (!isListLike) {
+                 const nextLines = await extractTextLinesFromPage(i + 1);
+                 const nextWithNum = nextLines.filter(l => /\d+$/.test(l.trim()));
+                 if (nextWithNum.length >= 3) {
+                   tocEnd = i + 1; 
+                 } else {
+                   tocEnd = i;
+                 }
+              } else {
+                tocEnd = i;
+              }
+            } else if (isListLike && i < 15) {
               tocStart = i;
               tocEnd = i;
-              tocPatternActive = true;
             }
-          } else if (tocPatternActive) {
-            if (isListLike || hasHeader) {
+          } else {
+            if (isListLike) {
+              tocEnd = i;
+            } else if (hasTocHeader) {
               tocEnd = i;
             } else {
-              tocPatternActive = false;
+              if (cleanLines.length > 3) {
+                break; 
+              }
             }
           }
         }
 
-        // 3. Apply Results
+        // --- 3. Apply Results ---
         let msg = [];
 
         if (detectedOffset) {
@@ -1071,10 +1105,12 @@
         }
 
         status.textContent = originalStatus + " | " + msg.join(", ");
-        
+        status.style.backgroundColor = "#d1fae5";
+        setTimeout(() => status.style.backgroundColor = "#f8fafc", 3000);
+
       } catch (e) {
         console.error("Auto-detect failed", e);
-        status.textContent = originalStatus + " | Auto-detect failed";
+        status.textContent = originalStatus + " | Auto-detect error";
       }
     }
 

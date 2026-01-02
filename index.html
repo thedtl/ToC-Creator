@@ -323,7 +323,13 @@
       </div>
     </div>
 
-    <div id="file-info" class="hidden" style="margin-top: 15px; font-weight: 500;"></div>
+    <!-- Updated File Info Area with Auto-Detect Button -->
+    <div id="file-info-container" class="hidden" style="margin-top: 15px; padding: 10px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+      <div id="file-info" style="font-weight: 500;"></div>
+      <button onclick="autoDetectStructure()" class="secondary" style="padding: 5px 10px; font-size: 0.85em; display: flex; align-items: center; gap: 5px;">
+        ✨ Re-run Auto-Detect
+      </button>
+    </div>
     <div id="url-error" class="hidden" style="margin-top: 10px; padding: 10px; background: #fee2e2; color: #991b1b; border-radius: 4px; font-size: 13px;"></div>
   </div>
 
@@ -400,7 +406,6 @@
           <input type="checkbox" id="filter-subchapters" checked style="width: auto; margin: 0;">
           Skip subchapters (1.1, 2.3, etc.)
         </label>
-        <!-- Removed other checkboxes as requested -->
       </div>
 
       <div id="extract-status" class="status-box hidden" style="margin-top: 10px;"></div>
@@ -958,7 +963,7 @@
       totalPages = pdfDoc.numPages;
 
       $("file-info").textContent = `${filename} (${totalPages} pages)`;
-      $("file-info").classList.remove("hidden");
+      $("file-info-container").classList.remove("hidden");
       $("url-error").classList.add("hidden");
       pageOffsetInput.max = totalPages;
 
@@ -981,6 +986,108 @@
 
       renderPreview(1);
       validateAllChapters();
+
+      // Trigger Auto-Detection
+      await autoDetectStructure();
+    }
+
+    // --- Auto-Detection Logic ---
+    async function autoDetectStructure() {
+      const status = $("file-info");
+      const originalStatus = status.textContent.split(" | ")[0]; // Keep filename
+      status.textContent = originalStatus + " | 🔍 Auto-detecting...";
+      
+      try {
+        const maxScan = Math.min(25, totalPages);
+        let detectedOffset = null;
+        let tocStart = null;
+        let tocEnd = null;
+
+        // 1. Try PDF Metadata (PageLabels)
+        const pageLabels = await pdfDoc.getPageLabels(); 
+        if (pageLabels && pageLabels.length > 0) {
+          const index = pageLabels.findIndex(l => l === "1");
+          if (index !== -1) {
+            detectedOffset = index + 1;
+          }
+        }
+
+        // 2. Text Analysis Loop
+        let tocPatternActive = false;
+
+        for (let i = 1; i <= maxScan; i++) {
+          const page = await pdfDoc.getPage(i);
+          const textContent = await page.getTextContent();
+          const items = textContent.items;
+          
+          const viewport = page.getViewport({ scale: 1 });
+          const height = viewport.height;
+
+          const lines = assembleLineText(items).split("\n");
+
+          // A. Detect Offset (if not found via metadata)
+          if (!detectedOffset) {
+            const footerThreshold = height * 0.15;
+            const headerThreshold = height * 0.90;
+
+            const potentialPageNum = items.find(item => {
+              const y = item.transform[5];
+              const isFooter = y < footerThreshold;
+              const isHeader = y > headerThreshold;
+              return (isFooter || isHeader) && item.str.trim() === "1";
+            });
+
+            if (potentialPageNum) detectedOffset = i;
+          }
+
+          // B. Detect ToC
+          const tocHeaderRegex = /^\s*(table of contents|contents|índice|indice|contenido|sommaire|inhalt)\s*$/i;
+          const hasHeader = lines.some(line => tocHeaderRegex.test(line.trim()));
+          const listLines = lines.filter(line => /\.*\s*\d+$/.test(line.trim()));
+          const isListLike = listLines.length > 3;
+
+          if (!tocStart) {
+            if (hasHeader || (isListLike && i < 10)) {
+              tocStart = i;
+              tocEnd = i;
+              tocPatternActive = true;
+            }
+          } else if (tocPatternActive) {
+            if (isListLike || hasHeader) {
+              tocEnd = i;
+            } else {
+              tocPatternActive = false;
+            }
+          }
+        }
+
+        // 3. Apply Results
+        let msg = [];
+
+        if (detectedOffset) {
+          $("page-offset").value = detectedOffset;
+          msg.push(`Offset: pg ${detectedOffset}`);
+          updateFrontMatterDisplay();
+        } else {
+          msg.push("Offset: ?");
+        }
+
+        if (tocStart) {
+          $("toc-start-page").value = tocStart;
+          $("toc-end-page").value = tocEnd || tocStart;
+          msg.push(`ToC: pg ${tocStart}-${tocEnd || tocStart}`);
+          renderPreview(tocStart);
+          updatePageRangeHint();
+        } else {
+          msg.push("ToC: ?");
+        }
+
+        status.textContent = originalStatus + " | " + msg.join(", ");
+        
+      } catch (e) {
+        console.error("Auto-detect failed", e);
+        status.textContent = originalStatus + " | Auto-detect failed";
+      }
     }
 
     async function renderPreview(pageNum) {

@@ -400,21 +400,7 @@
           <input type="checkbox" id="filter-subchapters" checked style="width: auto; margin: 0;">
           Skip subchapters (1.1, 2.3, etc.)
         </label>
-
-        <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85em; color: #666;">
-          <input type="checkbox" id="replace-existing" checked style="width: auto; margin: 0;">
-          Replace existing chapter list when parsing
-        </label>
-
-        <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85em; color: #666;">
-          <input type="checkbox" id="prefix-section-headers" checked style="width: auto; margin: 0;">
-          Prefix section headers (Introducción, Conclusión, Apéndices) onto the next entry
-        </label>
-
-        <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85em; color: #666;">
-          <input type="checkbox" id="fix-spaced-section-numbers" checked style="width: auto; margin: 0;">
-          Fix spaced section numbers inside titles (example: "1 5 Más..." becomes "1.5 Más...")
-        </label>
+        <!-- Removed other checkboxes as requested -->
       </div>
 
       <div id="extract-status" class="status-box hidden" style="margin-top: 10px;"></div>
@@ -523,6 +509,13 @@
     // --- Configuration ---
     pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
+    // --- Parsing behavior (simplified: always ON, no checkboxes) ---
+    const PARSE_BEHAVIOR = {
+      replaceExistingList: true,
+      prefixSectionHeaders: true,
+      fixSpacedSectionNumbers: true
+    };
+
     // --- State ---
     let pdfDoc = null;
     let pdfBytes = null;
@@ -575,6 +568,22 @@
     function safeParseInt(x) {
       const n = parseInt(String(x).trim(), 10);
       return Number.isFinite(n) ? n : NaN;
+    }
+
+    function resetChapterListAndHistory() {
+      chapterListEl.innerHTML = '';
+      history = [];
+      historyIndex = -1;
+      updateHistoryButtons();
+    }
+
+    function fixSpacedSectionNumbersInTitle(title) {
+      // Example: "1 5 Más..." -> "1.5 Más..."
+      // Only triggers when the spaced numbers are followed by a word.
+      return title.replace(
+        /(^|\s)(\d{1,2})\s+(\d{1,2})(?=\s+[A-Za-zÁÉÍÓÚÜÑáéíóúüñ])/g,
+        '$1$2.$3'
+      );
     }
 
     // --- Raw ToC helpers ---
@@ -745,8 +754,7 @@
         }
 
         status.textContent = "Parsing chapters...";
-        const replaceExisting = $("replace-existing").checked;
-        const result = parseTocText(raw, { replaceExisting });
+        const result = parseTocText(raw);
 
         if (result.count > 0) {
           status.className = "status-box success";
@@ -1186,8 +1194,7 @@
         setRawToc(cleaned);
 
         status.textContent = "Parsing chapters...";
-        const replaceExisting = $("replace-existing").checked;
-        const result = parseTocText(cleaned, { replaceExisting });
+        const result = parseTocText(cleaned);
 
         clearImages();
 
@@ -1234,13 +1241,12 @@
     }
 
     // --- ToC Parsing ---
-    function parseTocText(text, options = {}) {
+    function parseTocText(text) {
       const filterSubchapters = $("filter-subchapters").checked;
-      const prefixHeaders = $("prefix-section-headers").checked;
-      const fixSpacedSectionNumbers = $("fix-spaced-section-numbers").checked;
-      const replaceExisting = !!options.replaceExisting;
 
-      if (replaceExisting) resetChapterList();
+      if (PARSE_BEHAVIOR.replaceExistingList) {
+        resetChapterListAndHistory();
+      }
 
       let lines = normalizeNewlines(text || "")
         .split("\n")
@@ -1251,16 +1257,27 @@
       lines = lines.map(l => l.replace(/\.{2,}/g, " ").replace(/\s{2,}/g, " ").trim());
 
       const format = detectTocFormat(lines);
-      const entries = (format === "page-first")
-        ? parsePageFirstFormat(lines)
-        : parsePageLastFormat(lines, { prefixHeaders, fixSpacedSectionNumbers });
+      
+      let extractedEntries = [];
+      let skippedNonMatches = 0;
+
+      if (format === "page-first") {
+        const res = parsePageFirstFormat(lines);
+        extractedEntries = res.entries;
+        skippedNonMatches = res.skippedNonMatches;
+      } else {
+        // Use the new hard-coded logic
+        extractedEntries = parsePageLastFormat(lines);
+        // Estimate skipped lines for the status box
+        skippedNonMatches = Math.max(0, lines.length - extractedEntries.length);
+      }
 
       let parsedCount = 0;
       let skippedSubchapters = 0;
 
       isBulkEdit = true;
 
-      for (const entry of entries.entries) {
+      for (const entry of extractedEntries) {
         if (filterSubchapters && looksLikeSubchapter(entry.title)) {
           skippedSubchapters++;
           continue;
@@ -1278,7 +1295,7 @@
       return {
         count: parsedCount,
         skippedSubchapters,
-        skippedNonMatches: entries.skippedNonMatches
+        skippedNonMatches
       };
     }
 
@@ -1329,146 +1346,104 @@
       return { entries, skippedNonMatches };
     }
 
-    function parsePageLastFormat(lines, opts) {
+    function parsePageLastFormat(lines) {
       const entries = [];
-      let skippedNonMatches = 0;
+      let buffer = '';
+      let chapterPrefix = '';   // "Capítulo 1"
+      let sectionPrefix = '';   // "Introducción", "Conclusión", "Apéndices"
 
-      let buffer = "";
-      let chapterPrefix = "";
-      let sectionPrefix = "";
-
-      // Chapter markers like: Capítulo 1 / Chapter 2 / etc.
       const chapterMarkerPattern = /^(chapter|capítulo|capitulo|chapitre|kapitel|capitolo|parte|part|teil|section|sección|seccion)\s*(\d+)\.?$/i;
 
-      // Section headers to prefix next entry
-      const sectionHeaderPattern = /^(introducción|conclusión|apéndices|apendices|appendices|introduction|conclusion)$/i;
+      // Section headers you want to prefix onto the next real ToC entry:
+      const sectionHeaderPattern = /^(introducción|introduction|conclusión|conclusion|apéndices|appendices|prefacio|preface)$/i;
 
-      // Ignore lines like "Contenido"
-      const ignorePattern = /^(contenido|table of contents)$/i;
+      for (const line of lines) {
+        const trimmedLine = line.trim();
 
-      for (const line0 of lines) {
-        const line = line0.trim();
-        if (!line) continue;
-
-        if (ignorePattern.test(line)) {
-          buffer = "";
-          chapterPrefix = "";
-          sectionPrefix = "";
-          skippedNonMatches++;
+        // 1) If line is a standalone section header, store it and move on
+        if (PARSE_BEHAVIOR.prefixSectionHeaders && sectionHeaderPattern.test(trimmedLine)) {
+          sectionPrefix = trimmedLine.replace(/\.?$/, '');
           continue;
         }
 
-        // Section headers (optional prefix behavior)
-        if (opts.prefixHeaders && sectionHeaderPattern.test(line)) {
-          sectionPrefix = line; // keep original casing
-          buffer = "";
-          chapterPrefix = "";
-          skippedNonMatches++;
-          continue;
-        }
-
-        // Chapter markers
-        const chapterMatch = line.match(chapterMarkerPattern);
+        // 2) Chapter marker like "Capítulo 1"
+        const chapterMatch = trimmedLine.match(chapterMarkerPattern);
         if (chapterMatch) {
-          chapterPrefix = line.replace(/\.?$/, "");
-          buffer = "";
-          skippedNonMatches++;
+          chapterPrefix = trimmedLine.replace(/\.?$/, '');
           continue;
         }
 
-        // Standalone page number line
-        if (isStandalonePageToken(line)) {
-          const pageStr = normalizePageToken(line);
+        // 3) Standalone page number line
+        const standaloneMatch = trimmedLine.match(/^(\d+|[ivxlcdm]+)\.?$/i);
+        if (standaloneMatch) {
+          if (buffer || chapterPrefix || sectionPrefix) {
+            const pageStr = standaloneMatch[1];
 
-          // Skip Roman numerals (front matter) but reset buffer to avoid cross-contamination
-          if (isRomanNumeralToken(pageStr)) {
-            buffer = "";
-            chapterPrefix = "";
-            sectionPrefix = "";
-            skippedNonMatches++;
-            continue;
-          }
-
-          const page = safeParseInt(pageStr);
-          if (!page) {
-            skippedNonMatches++;
-            continue;
-          }
-
-          // Build full title from prefix + buffer
-          let fullTitle = buffer.trim();
-
-          if (chapterPrefix && fullTitle) fullTitle = `${chapterPrefix}: ${fullTitle}`;
-          else if (chapterPrefix && !fullTitle) fullTitle = chapterPrefix;
-
-          if (sectionPrefix && fullTitle) fullTitle = `${sectionPrefix}: ${fullTitle}`;
-          else if (sectionPrefix && !fullTitle) fullTitle = sectionPrefix;
-
-          fullTitle = cleanTitle(fullTitle, opts);
-
-          if (fullTitle) {
-            entries.push({ title: fullTitle, page });
-          } else {
-            skippedNonMatches++;
-          }
-
-          buffer = "";
-          chapterPrefix = "";
-          sectionPrefix = "";
-          continue;
-        }
-
-        // Inline "title ... 25" case (Arabic or Roman at end)
-        const inlineMatch = line.match(/^(.+?)\s+(\d+|[ivxlcdm]+)\.?$/i);
-        if (inlineMatch) {
-          const potentialTitle = inlineMatch[1].trim();
-          const potentialPageRaw = normalizePageToken(inlineMatch[2]);
-
-          if (isRomanNumeralToken(potentialPageRaw)) {
-            buffer = "";
-            chapterPrefix = "";
-            sectionPrefix = "";
-            skippedNonMatches++;
-            continue;
-          }
-
-          const page = safeParseInt(potentialPageRaw);
-          if (!page) {
-            // not a real page number; treat as title line
-          } else {
-            let combinedTitle = buffer ? (buffer + " " + potentialTitle) : potentialTitle;
-
-            let fullTitle = combinedTitle.trim();
-
-            if (chapterPrefix) fullTitle = `${chapterPrefix}: ${fullTitle}`;
-            if (sectionPrefix) fullTitle = `${sectionPrefix}: ${fullTitle}`;
-
-            fullTitle = cleanTitle(fullTitle, opts);
-
-            if (fullTitle) {
-              entries.push({ title: fullTitle, page });
-            } else {
-              skippedNonMatches++;
+            // Skip Roman numerals (front matter)
+            if (/^[ivxlcdm]+$/i.test(pageStr) && isNaN(pageStr)) {
+              buffer = '';
+              chapterPrefix = '';
+              sectionPrefix = '';
+              continue;
             }
 
-            buffer = "";
-            chapterPrefix = "";
-            sectionPrefix = "";
+            const page = parseInt(pageStr, 10);
+
+            // Build final title with prefixes
+            let fullTitle = buffer || '';
+            if (chapterPrefix) fullTitle = chapterPrefix + (fullTitle ? ': ' + fullTitle : '');
+            if (sectionPrefix) fullTitle = sectionPrefix + (fullTitle ? ': ' + fullTitle : '');
+
+            entries.push({ title: cleanTitle(fullTitle), page });
+
+            buffer = '';
+            chapterPrefix = '';
+            sectionPrefix = '';
+          }
+          continue;
+        }
+
+        // 4) Inline page number at end: "Title .... 42"
+        const inlineMatch = trimmedLine.match(/^(.+?)\s+(\d+|[ivxlcdm]+)$/i);
+        if (inlineMatch) {
+          const potentialTitle = inlineMatch[1];
+          const potentialPage = inlineMatch[2];
+
+          // Skip Roman numerals (front matter)
+          if (/^[ivxlcdm]+$/i.test(potentialPage) && isNaN(potentialPage)) {
+            buffer = '';
+            chapterPrefix = '';
+            sectionPrefix = '';
+            continue;
+          }
+
+          const titleWithoutTrailing = potentialTitle.replace(/[._\-\s]+$/, '').trim();
+
+          if (titleWithoutTrailing.length > 0 && /[a-zA-ZáéíóúñüÁÉÍÓÚÑÜ]/.test(titleWithoutTrailing)) {
+            const combinedTitle = buffer ? buffer + ' ' + titleWithoutTrailing : titleWithoutTrailing;
+
+            let fullTitle = combinedTitle;
+            if (chapterPrefix) fullTitle = chapterPrefix + ': ' + fullTitle;
+            if (sectionPrefix) fullTitle = sectionPrefix + ': ' + fullTitle;
+
+            const page = parseInt(potentialPage, 10);
+            entries.push({ title: cleanTitle(fullTitle), page });
+
+            buffer = '';
+            chapterPrefix = '';
+            sectionPrefix = '';
             continue;
           }
         }
 
-        // Otherwise: part of a multi-line title
-        buffer = buffer ? (buffer + " " + line) : line;
+        // 5) Otherwise: accumulate title lines
+        buffer = buffer ? buffer + ' ' + trimmedLine : trimmedLine;
       }
 
-      // Any leftover buffer without page gets ignored
-      if (buffer.trim()) skippedNonMatches++;
-
-      return { entries, skippedNonMatches };
+      return entries;
     }
 
-    function cleanTitle(title, opts = {}) {
+    function cleanTitle(title) {
       let t = String(title || "")
         .replace(/[._\-]+$/, "")
         .replace(/\s{2,}/g, " ")
@@ -1476,11 +1451,8 @@
 
       if (!t) return "";
 
-      // Optional fix: "1 5 Más" -> "1.5 Más" (helps OCR and some PDFs)
-      if (opts.fixSpacedSectionNumbers) {
-        // Only convert single-digit + single-digit followed by an uppercase letter word
-        // Example: "... 1 5 Más ..." -> "... 1.5 Más ..."
-        t = t.replace(/\b(\d)\s+(\d)\b(?=\s+\p{Lu})/gu, "$1.$2");
+      if (PARSE_BEHAVIOR.fixSpacedSectionNumbers) {
+        t = fixSpacedSectionNumbersInTitle(t);
       }
 
       return t;

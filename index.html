@@ -324,23 +324,16 @@
     <div class="card hidden" id="step2">
         <h2><span class="step-number">2</span> Page Offset</h2>
         <p style="color: #666; font-size: 0.9em; margin-bottom: 15px;">
-            Find the PDF page that corresponds to the book's "Page 1".
+            Find the PDF page that shows the book's "Page 1" (not the cover or table of contents).
         </p>
         
         <div style="display: flex; gap: 20px; flex-wrap: wrap;">
             <div style="flex: 1; min-width: 250px;">
                 <label>Book Page 1 is on PDF Page:</label>
                 <input type="number" id="page-offset" value="1" min="1">
-                
-                <div style="margin-top: 15px; display: flex; align-items: center; gap: 8px;">
-                    <input type="checkbox" id="include-front-matter" style="width: auto; margin: 0;">
-                    <label for="include-front-matter" style="margin: 0;">Include Roman Numerals (i, ii, iii)</label>
-                </div>
-                
-                <div id="front-matter-options" class="hidden" style="margin-top: 10px; padding: 10px; background: #f3f4f6; border-radius: 4px;">
-                    <label style="font-size: 0.9em;">Roman 'i' starts on PDF Page:</label>
-                    <input type="number" id="front-matter-offset" value="1" min="1">
-                </div>
+                <p style="font-size: 0.8em; color: #888; margin-top: 8px;">
+                    Everything before this will be bookmarked as "Front Matter"
+                </p>
             </div>
             
             <div style="flex: 1; min-width: 250px;">
@@ -362,7 +355,7 @@
                     </div>
                 </div>
                 <canvas id="preview-canvas" style="cursor: pointer;" onclick="openPreviewFullSize()" title="Click to open full-size in new tab"></canvas>
-                <div style="font-size: 11px; color: #888; margin-top: 4px; text-align: center;">Click image to open full-size • Use higher resolution for better screenshots</div>
+                <div style="font-size: 11px; color: #888; margin-top: 4px; text-align: center;">Click image to open full-size</div>
             </div>
         </div>
     </div>
@@ -391,8 +384,15 @@
             
             <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
                 <button onclick="setTocToCurrentPage()" class="secondary" style="padding: 8px 12px; font-size: 0.85em;">Set to current page</button>
-                <button onclick="extractTocFromPdf()" class="success" id="extract-btn" style="padding: 8px 16px;">Extract ToC</button>
+                <button onclick="extractAndParseToc()" class="success" id="extract-btn" style="padding: 8px 16px;">Extract & Parse ToC</button>
                 <span id="page-range-hint" style="font-size: 0.85em; color: #666;"></span>
+            </div>
+            
+            <div style="margin-top: 10px;">
+                <label style="display: flex; align-items: center; gap: 5px; font-size: 0.85em; color: #666;">
+                    <input type="checkbox" id="filter-subchapters" checked style="width: auto; margin: 0;">
+                    Skip subchapters (1.1, 2.3, etc.)
+                </label>
             </div>
             
             <div id="extract-status" class="status-box hidden" style="margin-top: 10px;"></div>
@@ -430,32 +430,13 @@
                     </div>
                     
                     <div class="button-row" style="margin-top: 10px;">
-                        <button onclick="runOcr()" class="success" id="ocr-btn">🔍 Run OCR</button>
+                        <button onclick="runOcrAndParse()" class="success" id="ocr-btn">🔍 Run OCR & Parse</button>
                         <button onclick="clearImages()" class="secondary">Clear</button>
                     </div>
                     <div id="ocr-status" class="status-box hidden"></div>
                 </div>
             </div>
         </details>
-        
-        <!-- Extracted/OCR'd Text -->
-        <div id="text-review-section" class="hidden">
-            <label style="font-weight: 500;">Review extracted text:</label>
-            <p style="font-size: 0.85em; color: #888; margin-bottom: 5px;">
-                Edit if needed, then click "Parse to Chapters"
-            </p>
-            <textarea id="toc-paste" rows="8" placeholder="Extracted text will appear here..."></textarea>
-            <div class="button-row">
-                <button onclick="parseToc()" class="success">Parse to Chapters</button>
-                <button onclick="clearText()" class="secondary">Clear</button>
-                <label style="display: flex; align-items: center; gap: 5px; margin-left: 10px; font-size: 13px;">
-                    <input type="checkbox" id="filter-subchapters" checked style="width: auto; margin: 0;">
-                    Skip subchapters (1.1, 2.3)
-                </label>
-            </div>
-        </div>
-        
-        <hr style="margin: 20px 0; border: 0; border-top: 1px solid var(--border);">
         
         <!-- Chapter List -->
         <div class="toolbar">
@@ -503,17 +484,14 @@
 
         // --- DOM Elements ---
         const chapterListEl = document.getElementById('chapter-list');
-        const tocPasteEl = document.getElementById('toc-paste');
         const pageOffsetInput = document.getElementById('page-offset');
-        const frontMatterOffsetInput = document.getElementById('front-matter-offset');
-        const includeFrontMatterCheckbox = document.getElementById('include-front-matter');
         const dropZone = document.getElementById('ocr-drop-zone');
         const tocImageInput = document.getElementById('toc-image');
         const tocStartPageInput = document.getElementById('toc-start-page');
         const tocEndPageInput = document.getElementById('toc-end-page');
 
-        // --- PDF Text Extraction ---
-        async function extractTocFromPdf() {
+        // --- PDF Text Extraction & Parsing ---
+        async function extractAndParseToc() {
             if (!pdfDoc) {
                 alert('Please load a PDF first');
                 return;
@@ -547,7 +525,6 @@
                     const textContent = await page.getTextContent();
                     
                     // Sort items by position: y descending (top to bottom), then x ascending (left to right)
-                    // This handles PDFs where text items aren't emitted in visual order
                     const sortedItems = textContent.items
                         .filter(item => item.str && item.str.trim() !== '')
                         .sort((a, b) => {
@@ -556,40 +533,32 @@
                             const xA = a.transform[4];
                             const xB = b.transform[4];
                             
-                            // Compare y first (descending - top of page has higher y)
                             if (Math.abs(yA - yB) > 3) {
                                 return yB - yA;
                             }
-                            // Same line, compare x (ascending - left to right)
                             return xA - xB;
                         });
                     
-                    // Extract text, using hasEOL when available, falling back to y-threshold
                     let lastY = null;
                     let lineText = '';
                     
                     for (const item of sortedItems) {
                         const y = item.transform[5];
                         const hasExplicitEOL = item.hasEOL === true;
-                        
-                        // Determine if this is a new line
                         const isNewLine = lastY !== null && Math.abs(y - lastY) > 3;
                         
                         if (isNewLine) {
-                            // Flush previous line
                             if (lineText.trim()) {
                                 allText += lineText.trim() + '\n';
                             }
                             lineText = item.str;
                         } else {
-                            // Same line - add space if needed
                             if (lineText && !lineText.endsWith(' ') && !item.str.startsWith(' ')) {
                                 lineText += ' ';
                             }
                             lineText += item.str;
                         }
                         
-                        // If PDF explicitly marks end of line, flush now
                         if (hasExplicitEOL && lineText.trim()) {
                             allText += lineText.trim() + '\n';
                             lineText = '';
@@ -599,39 +568,46 @@
                         }
                     }
                     
-                    // Add final line of this page
                     if (lineText.trim()) {
                         allText += lineText.trim() + '\n';
                     }
-                    allText += '\n'; // Blank line between pages
+                    allText += '\n';
                 }
                 
-                // Check if we got useful text
                 const cleanedText = allText.trim();
                 if (cleanedText.length < 20) {
                     status.className = 'status-box warning';
-                    status.textContent = 'Very little text found. This PDF may be a scanned image. Try the OCR option in "Advanced" section below.';
-                } else {
-                    status.className = 'status-box success';
-                    status.textContent = `Extracted text from ${endPage - startPage + 1} page(s). Review below and click "Parse to Chapters".`;
+                    status.textContent = 'Very little text found. This PDF may be a scanned image. Try the OCR option below.';
+                    btn.disabled = false;
+                    btn.textContent = 'Extract & Parse ToC';
+                    return;
                 }
                 
-                // Show the text review section
-                tocPasteEl.value = cleanedText;
-                document.getElementById('text-review-section').classList.remove('hidden');
+                // Parse the text directly
+                status.textContent = 'Parsing chapters...';
+                const result = parseTocText(cleanedText);
+                
+                if (result.count > 0) {
+                    status.className = 'status-box success';
+                    let msg = `Found ${result.count} chapters.`;
+                    if (result.skippedSubchapters > 0) {
+                        msg += ` (Skipped ${result.skippedSubchapters} subchapters)`;
+                    }
+                    status.textContent = msg;
+                    validateAllChapters();
+                } else {
+                    status.className = 'status-box warning';
+                    status.textContent = 'Could not find any chapters. The ToC format may not be recognized.';
+                }
                 
             } catch (err) {
                 console.error(err);
                 status.className = 'status-box error';
-                status.textContent = 'Error extracting text: ' + err.message;
+                status.textContent = 'Error: ' + err.message;
             }
             
             btn.disabled = false;
-            btn.textContent = 'Extract ToC';
-        }
-        
-        function clearText() {
-            tocPasteEl.value = '';
+            btn.textContent = 'Extract & Parse ToC';
         }
         
         function setTocToCurrentPage() {
@@ -1052,7 +1028,7 @@
             });
         }
 
-        async function runOcr() {
+        async function runOcrAndParse() {
             if (!ocrImages.length) return;
             const status = document.getElementById('ocr-status');
             const btn = document.getElementById('ocr-btn');
@@ -1092,7 +1068,7 @@
                     fullText += result.data.text + '\n';
                 }
 
-                // AGGRESSIVE CLEANUP
+                // AGGRESSIVE CLEANUP for OCR text
                 const cleanedLines = fullText.split('\n').map(line => {
                     let l = line.trim();
                     if (!l) return '';
@@ -1101,14 +1077,10 @@
                     l = l.replace(/([._-]\s*){2,}/g, ' ');
                     
                     // Remove garbled dot leaders - OCR often misreads dots as repeated letters
-                    // Pattern: long sequences of mostly vowels/common chars that look like garbage
-                    // e.g., "ccoooenrerieeeeencniseseienemensesessresaseensisseseeeee"
                     l = l.replace(/\b[oOeEiIcCnNrRsStTaA]{8,}\b/g, ' ');
                     
-                    // Also catch mixed garbage patterns with repeated subsequences
-                    // If a "word" is 15+ chars and has lots of repeated letters, it's probably garbage
+                    // Catch mixed garbage patterns with repeated subsequences
                     l = l.replace(/\b\S{15,}\b/g, (match) => {
-                        // Count how many characters are repeated (appear 3+ times)
                         const charCounts = {};
                         for (const c of match.toLowerCase()) {
                             charCounts[c] = (charCounts[c] || 0) + 1;
@@ -1116,8 +1088,6 @@
                         const repeatedChars = Object.values(charCounts).filter(n => n >= 3).length;
                         const uniqueChars = Object.keys(charCounts).length;
                         
-                        // If most chars are heavily repeated and low variety, it's garbage
-                        // e.g., "eeeennnsssiiioooo" has few unique chars but many repeats
                         if (repeatedChars >= 3 && uniqueChars <= match.length / 3) {
                             return ' ';
                         }
@@ -1127,7 +1097,7 @@
                     // Clean up multiple spaces
                     l = l.replace(/\s+/g, ' ').trim();
                     
-                    // Find last space to isolate page number
+                    // Find last space to isolate page number for leetspeak fix
                     const lastSpace = l.lastIndexOf(' ');
                     if (lastSpace === -1) return l;
                     
@@ -1135,12 +1105,10 @@
                     let pagePart = l.substring(lastSpace + 1).trim();
                     
                     // Only apply leetspeak conversion if it looks like Arabic (has a digit)
-                    // This preserves Roman numerals like "ix", "xvi", etc.
                     const looksRoman = /^[ivxlcdm]+$/i.test(pagePart);
                     const hasDigit = /\d/.test(pagePart);
                     
                     if (!looksRoman && hasDigit) {
-                        // Aggressive Leetspeak conversion on Page Number ONLY
                         pagePart = pagePart
                             .replace(/O/gi, '0')
                             .replace(/l/gi, '1')
@@ -1157,11 +1125,24 @@
                     return `${title} ${pagePart}`;
                 }).filter(Boolean).join('\n');
 
-                tocPasteEl.value = cleanedLines;
-                document.getElementById('text-review-section').classList.remove('hidden');
-                status.className = 'status-box success';
-                status.textContent = 'OCR Complete! Review text below and click "Parse to Chapters".';
+                // Parse directly to chapters
+                status.textContent = 'Parsing chapters...';
+                const result = parseTocText(cleanedLines);
+                
                 clearImages();
+                
+                if (result.count > 0) {
+                    status.className = 'status-box success';
+                    let msg = `Found ${result.count} chapters via OCR.`;
+                    if (result.skippedSubchapters > 0) {
+                        msg += ` (Skipped ${result.skippedSubchapters} subchapters)`;
+                    }
+                    status.textContent = msg;
+                    validateAllChapters();
+                } else {
+                    status.className = 'status-box warning';
+                    status.textContent = 'OCR completed but could not parse any chapters. Try a different layout mode.';
+                }
 
             } catch (err) {
                 console.error(err);
@@ -1171,107 +1152,199 @@
             btn.disabled = false;
         }
 
-        // --- Parsing Logic (with wrapped line joining) ---
-        function parseToc() {
-            const text = tocPasteEl.value;
-            if (!text.trim()) return alert('Extract or paste text first');
-
+        // --- Multi-Format ToC Parsing ---
+        // Handles various ToC formats:
+        // Format A: "Chapter Title ... 42" (inline with dots/spaces)
+        // Format B: "Chapter Title" + newline + "42" (page on own line)
+        // Format C: "Author Name" + newline + "Chapter Title ... 42" (author on separate line)
+        // Format D: "42    Chapter Title" (page number FIRST)
+        // Format E: "1. Introduction  1" (numbered chapters)
+        
+        function parseTocText(text) {
+            const filterSubchapters = document.getElementById('filter-subchapters').checked;
+            
             let lines = text.split('\n').map(l => {
                 let cleaned = l.trim();
-                // Remove dot leaders (common in PDF-extracted ToCs)
+                // Remove dot leaders
                 cleaned = cleaned.replace(/\.{2,}/g, ' ');
+                // Collapse multiple spaces
                 cleaned = cleaned.replace(/\s{2,}/g, ' ');
                 return cleaned;
             }).filter(Boolean);
             
-            // Join wrapped lines: if a line doesn't end with a number, prepend it to the next line
-            const joinedLines = [];
-            let buffer = '';
+            // Detect format by analyzing the lines
+            const format = detectTocFormat(lines);
             
-            for (const line of lines) {
-                // Check if line ends with a page number (Arabic or Roman)
-                const endsWithNumber = /(\d+|[ivxlcdm]+)\s*$/i.test(line);
-                
-                if (endsWithNumber) {
-                    // This line has a page number - flush buffer and add
-                    if (buffer) {
-                        joinedLines.push(buffer + ' ' + line);
-                        buffer = '';
-                    } else {
-                        joinedLines.push(line);
-                    }
-                } else {
-                    // No page number - accumulate in buffer
-                    buffer = buffer ? buffer + ' ' + line : line;
-                }
+            let entries = [];
+            
+            if (format === 'page-first') {
+                // Format D: Page number at start of line
+                entries = parsePageFirstFormat(lines);
+            } else {
+                // Default: Page number at end (handles A, B, C, E, F)
+                entries = parsePageLastFormat(lines);
             }
             
-            // If there's leftover buffer, add it (might be orphaned)
-            if (buffer) {
-                joinedLines.push(buffer);
-            }
-            
+            // Filter and add chapters
             let parsedCount = 0;
             let skippedSubchapters = 0;
-            const filterSubchapters = document.getElementById('filter-subchapters').checked;
             
-            // Regex: Title followed by separator and page number at end
-            // Group 1: Title (everything before)
-            // Group 2: Page Number (Arabic or Roman)
-            const regex = /^(.*?)(?:\s+|[. _-]+)([0-9]+|[ivxlcdm]+)$/i;
+            isBulkEdit = true;
             
-            // Detect numbered subchapters like "1.1", "2.3.4", "A.1", etc.
-            // Must have at least two segments - "1. Introduction" should NOT be skipped
-            function looksLikeSubchapter(title) {
-                // 1.1 or 2.3.4 etc (requires digit.digit)
-                if (/^\s*\d+\.\d+(?:\.\d+)*\s+/.test(title)) return true;
-                // A.1 or B.2.3 etc (letter.digit)
-                if (/^\s*[A-Z]\.\d+(?:\.\d+)*\s+/i.test(title)) return true;
-                return false;
-            }
-
-            isBulkEdit = true; // Prevent history spam
-            
-            for (const line of joinedLines) {
-                const match = line.match(regex);
-                if (match) {
-                    let title = match[1].trim();
-                    // Clean trailing dots/dashes from title
-                    title = title.replace(/[._-]+$/, '').trim();
-                    
-                    // Skip subchapters if filter is enabled
-                    if (filterSubchapters && looksLikeSubchapter(title)) {
-                        skippedSubchapters++;
-                        continue;
-                    }
-                    
-                    const pageStr = match[2].trim();
-                    const isRoman = /^[ivxlcdm]+$/i.test(pageStr) && isNaN(pageStr);
-                    
-                    let pageNum = isRoman ? romanToArabic(pageStr) : parseInt(pageStr, 10);
-                    
-                    if (title && pageNum) {
-                        addChapterWithData(title, pageNum, isRoman);
-                        parsedCount++;
-                    }
+            for (const entry of entries) {
+                if (filterSubchapters && looksLikeSubchapter(entry.title)) {
+                    skippedSubchapters++;
+                    continue;
+                }
+                
+                if (entry.title && entry.page) {
+                    addChapterWithData(entry.title, entry.page);
+                    parsedCount++;
                 }
             }
             
             isBulkEdit = false;
-            saveState(); // Single history entry for entire parse
-
-            if (parsedCount > 0) {
-                tocPasteEl.value = '';
-                document.getElementById('text-review-section').classList.add('hidden');
-                validateAllChapters();
-                let msg = `Parsed ${parsedCount} chapters.`;
-                if (skippedSubchapters > 0) {
-                    msg += ` (Skipped ${skippedSubchapters} subchapter entries)`;
+            saveState();
+            
+            return { count: parsedCount, skippedSubchapters };
+        }
+        
+        function detectTocFormat(lines) {
+            // Check if most lines start with a page number
+            let pageFirstCount = 0;
+            let pageLastCount = 0;
+            
+            for (const line of lines.slice(0, 20)) { // Sample first 20 lines
+                // Starts with number followed by space and text
+                if (/^\d+\s+[A-Za-z]/.test(line)) {
+                    pageFirstCount++;
                 }
-                alert(msg);
-            } else {
-                alert('Could not parse chapters. Make sure each entry has a page number.');
+                // Ends with number
+                if (/[A-Za-z].*\s+\d+$/.test(line)) {
+                    pageLastCount++;
+                }
             }
+            
+            return pageFirstCount > pageLastCount ? 'page-first' : 'page-last';
+        }
+        
+        function parsePageFirstFormat(lines) {
+            // Format: "42    Chapter Title"
+            // Skips Roman numeral pages (front matter)
+            const entries = [];
+            const regex = /^(\d+|[ivxlcdm]+)\s+(.+)$/i;
+            
+            for (const line of lines) {
+                const match = line.match(regex);
+                if (match) {
+                    const pageStr = match[1];
+                    const title = match[2].trim();
+                    
+                    // Skip Roman numerals (front matter)
+                    const isRoman = /^[ivxlcdm]+$/i.test(pageStr) && isNaN(pageStr);
+                    if (isRoman) continue;
+                    
+                    const page = parseInt(pageStr, 10);
+                    
+                    if (title && page) {
+                        entries.push({ title, page });
+                    }
+                }
+            }
+            
+            return entries;
+        }
+        
+        function parsePageLastFormat(lines) {
+            // Handles: inline page numbers, standalone page numbers, multi-line titles
+            // Skips Roman numeral pages (front matter) - these will be covered by auto Front Matter bookmark
+            const entries = [];
+            let buffer = '';
+            
+            for (const line of lines) {
+                const trimmedLine = line.trim();
+                
+                // Is this line ONLY a page number?
+                const standaloneMatch = trimmedLine.match(/^(\d+|[ivxlcdm]+)\.?$/i);
+                
+                if (standaloneMatch) {
+                    // Standalone page number - associate with buffered title
+                    if (buffer) {
+                        const pageStr = standaloneMatch[1];
+                        
+                        // Skip Roman numeral pages (front matter)
+                        if (/^[ivxlcdm]+$/i.test(pageStr) && isNaN(pageStr)) {
+                            buffer = '';
+                            continue;
+                        }
+                        
+                        const page = parseInt(pageStr, 10);
+                        
+                        entries.push({ 
+                            title: cleanTitle(buffer), 
+                            page 
+                        });
+                        buffer = '';
+                    }
+                    continue;
+                }
+                
+                // Try to extract inline page number
+                // Match: title followed by page number at end
+                const inlineMatch = trimmedLine.match(/^(.+?)\s+(\d+|[ivxlcdm]+)$/i);
+                
+                if (inlineMatch) {
+                    const potentialTitle = inlineMatch[1];
+                    const potentialPage = inlineMatch[2];
+                    
+                    // Skip Roman numeral pages (front matter)
+                    if (/^[ivxlcdm]+$/i.test(potentialPage) && isNaN(potentialPage)) {
+                        buffer = '';
+                        continue;
+                    }
+                    
+                    // Make sure it's actually a page number (not part of title like "Chapter 1")
+                    const titleWithoutTrailing = potentialTitle.replace(/[._\-\s]+$/, '').trim();
+                    
+                    if (titleWithoutTrailing.length > 0 && /[a-zA-Z]/.test(titleWithoutTrailing)) {
+                        const fullTitle = buffer ? buffer + ' ' + titleWithoutTrailing : titleWithoutTrailing;
+                        const page = parseInt(potentialPage, 10);
+                        
+                        entries.push({ 
+                            title: cleanTitle(fullTitle), 
+                            page 
+                        });
+                        buffer = '';
+                        continue;
+                    }
+                }
+                
+                // No page number found - this is a title line, add to buffer
+                buffer = buffer ? buffer + ' ' + trimmedLine : trimmedLine;
+            }
+            
+            return entries;
+        }
+        
+        function cleanTitle(title) {
+            return title
+                .replace(/[._\-]+$/, '')  // Remove trailing dots/dashes
+                .trim();
+        }
+        
+        function looksLikeSubchapter(title) {
+            // 1.1 or 2.3.4 etc (requires digit.digit)
+            if (/^\s*\d+\.\d+(?:\.\d+)*\s+/.test(title)) return true;
+            // A.1 or B.2.3 etc (letter.digit)  
+            if (/^\s*[A-Z]\.\d+(?:\.\d+)*\s+/i.test(title)) return true;
+            return false;
+        }
+        
+        // Legacy function for manual text input (kept for compatibility but not used in current UI)
+        function parseToc() {
+            // This function is no longer used in the streamlined UI
+            // Kept for potential future manual text input feature
+            console.log('parseToc called but no longer used in current UI');
         }
 
         // --- Chapter Validation ---
@@ -1288,30 +1361,16 @@
                 return true;
             }
             
-            const isRoman = /^[ivxlcdm]+$/i.test(pageVal);
-            const pageNum = isRoman ? romanToArabic(pageVal) : parseInt(pageVal, 10);
+            const pageNum = parseInt(pageVal, 10);
             
-            if (!pageNum || isNaN(pageNum)) {
+            if (!pageNum || isNaN(pageNum) || pageNum < 1) {
                 row.classList.add('invalid');
-                if (msgEl) msgEl.textContent = 'Invalid page number';
+                if (msgEl) msgEl.textContent = 'Enter a valid page number';
                 return false;
             }
             
             const pageOffset = parseInt(pageOffsetInput.value) || 1;
-            const includeFront = includeFrontMatterCheckbox.checked;
-            const frontOffset = parseInt(frontMatterOffsetInput.value) || 1;
-            
-            let pdfIndex;
-            if (isRoman) {
-                if (!includeFront) {
-                    row.classList.add('invalid');
-                    if (msgEl) msgEl.textContent = 'Enable "Include Roman Numerals" to use Roman page numbers';
-                    return false;
-                }
-                pdfIndex = (pageNum - 1) + (frontOffset - 1);
-            } else {
-                pdfIndex = (pageNum - 1) + (pageOffset - 1);
-            }
+            const pdfIndex = (pageNum - 1) + (pageOffset - 1);
             
             if (pdfIndex < 0 || pdfIndex >= totalPages) {
                 row.classList.add('invalid');
@@ -1332,16 +1391,11 @@
             return invalidCount;
         }
         
-        // Re-validate when offsets change
+        // Re-validate when offset changes
         pageOffsetInput.addEventListener('change', validateAllChapters);
-        frontMatterOffsetInput.addEventListener('change', validateAllChapters);
-        includeFrontMatterCheckbox.addEventListener('change', (e) => {
-            document.getElementById('front-matter-options').classList.toggle('hidden', !e.target.checked);
-            validateAllChapters();
-        });
 
         // --- Chapter Management ---
-        function addChapterWithData(title, page, isRoman) {
+        function addChapterWithData(title, page) {
             const row = document.createElement('div');
             row.className = 'chapter-row';
             
@@ -1360,10 +1414,11 @@
             
             // Page input
             const pageInput = document.createElement('input');
-            pageInput.type = 'text';
+            pageInput.type = 'number';
             pageInput.className = 'chapter-page';
-            pageInput.value = isRoman ? toRoman(page).toLowerCase() : page;
+            pageInput.value = page;
             pageInput.placeholder = 'Pg';
+            pageInput.min = '1';
             
             // Delete button
             const deleteBtn = document.createElement('button');
@@ -1452,7 +1507,6 @@
 
         function getPageFromRow(row) {
             const val = row.querySelector('.chapter-page').value.trim();
-            if (/^[ivxlcdm]+$/i.test(val)) return romanToArabic(val);
             return parseInt(val) || 99999;
         }
 
@@ -1468,7 +1522,7 @@
             for (const row of rows) {
                 const pageVal = row.querySelector('.chapter-page').value.trim();
                 if (!pageVal) continue;
-                const currentPage = getPageFromRow(row);
+                const currentPage = parseInt(pageVal) || 0;
                 if (currentPage < lastPage) {
                     isUnsorted = true;
                     break;
@@ -1493,16 +1547,23 @@
             try {
                 const { PDFDocument, PDFName, PDFNumber, PDFString } = PDFLib;
                 const doc = await PDFDocument.load(pdfBytes);
-                const context = doc.context; // Fixed: define context once at top
+                const context = doc.context;
                 const numPages = doc.getPageCount();
                 
-                const pageOffset = parseInt(pageOffsetInput.value);
-                const includeFront = includeFrontMatterCheckbox.checked;
-                const frontOffset = parseInt(frontMatterOffsetInput.value);
+                const pageOffset = parseInt(pageOffsetInput.value) || 1;
 
                 // 1. Create Bookmarks
                 const outlineItems = [];
                 const skippedItems = [];
+                
+                // Auto-add Front Matter bookmark if there's content before page 1
+                if (pageOffset > 1) {
+                    outlineItems.push({ 
+                        title: 'Front Matter (Title page, Table of Contents, Preface, etc.)', 
+                        pageIndex: 0 
+                    });
+                }
+                
                 const chapterRows = chapterListEl.querySelectorAll('.chapter-row');
                 
                 chapterRows.forEach(row => {
@@ -1510,22 +1571,17 @@
                     const pageVal = row.querySelector('.chapter-page').value.trim();
                     if (!title || !pageVal) return;
 
-                    const isRoman = /^[ivxlcdm]+$/i.test(pageVal);
-                    const pageNum = isRoman ? romanToArabic(pageVal) : parseInt(pageVal);
-                    
-                    let pdfIndex;
-                    if (isRoman) {
-                        if (!includeFront) {
-                            skippedItems.push({ title, pageVal, reason: 'Roman numeral but front matter not enabled' });
-                            return;
-                        }
-                        pdfIndex = (pageNum - 1) + (frontOffset - 1);
-                    } else {
-                        pdfIndex = (pageNum - 1) + (pageOffset - 1);
+                    const pageNum = parseInt(pageVal);
+                    if (isNaN(pageNum) || pageNum < 1) {
+                        skippedItems.push({ title, pageVal, reason: 'Invalid page number' });
+                        return;
                     }
+                    
+                    // Convert book page to PDF page index
+                    const pdfIndex = (pageNum - 1) + (pageOffset - 1);
 
                     if (pdfIndex < 0 || pdfIndex >= numPages) {
-                        skippedItems.push({ title, pageVal, reason: `Maps to PDF page ${pdfIndex + 1} (out of range)` });
+                        skippedItems.push({ title, pageVal, reason: `Maps to PDF page ${pdfIndex + 1} (out of range 1-${numPages})` });
                         return;
                     }
                     
@@ -1565,35 +1621,20 @@
                     doc.catalog.set(PDFName.of('PageMode'), PDFName.of('UseOutlines'));
                 }
 
-                // 2. Set Page Labels (always include index 0 per PDF spec)
+                // 2. Set Page Labels
                 const nums = [];
                 
-                // Always start with page index 0
+                // Pages before main content (front matter)
                 nums.push(PDFNumber.of(0));
-                
-                if (includeFront && frontOffset === 1) {
-                    // Front matter starts at page 0, use Roman numerals
-                    nums.push(context.obj({ S: PDFName.of('r'), St: PDFNumber.of(1) }));
-                } else if (includeFront && frontOffset > 1) {
-                    // Pages before front matter - use Arabic starting at 1
-                    nums.push(context.obj({ S: PDFName.of('D'), St: PDFNumber.of(1) }));
-                    
-                    // Front matter section starts at frontOffset-1
-                    nums.push(PDFNumber.of(frontOffset - 1));
-                    nums.push(context.obj({ S: PDFName.of('r'), St: PDFNumber.of(1) }));
-                } else {
-                    // No front matter - pages before main content get Arabic numbers
-                    if (pageOffset > 1) {
-                        nums.push(context.obj({ S: PDFName.of('D'), St: PDFNumber.of(1) }));
-                    } else {
-                        // Main content starts at page 0
-                        nums.push(context.obj({ S: PDFName.of('D'), St: PDFNumber.of(1) }));
-                    }
-                }
-                
-                // Main content section (Arabic numerals starting at 1)
                 if (pageOffset > 1) {
+                    // Front matter uses lowercase Roman numerals
+                    nums.push(context.obj({ S: PDFName.of('r'), St: PDFNumber.of(1) }));
+                    
+                    // Main content starts at pageOffset-1, uses Arabic starting at 1
                     nums.push(PDFNumber.of(pageOffset - 1));
+                    nums.push(context.obj({ S: PDFName.of('D'), St: PDFNumber.of(1) }));
+                } else {
+                    // No front matter - all pages are Arabic starting at 1
                     nums.push(context.obj({ S: PDFName.of('D'), St: PDFNumber.of(1) }));
                 }
 
@@ -1622,13 +1663,13 @@
                 URL.revokeObjectURL(url);
                 
                 // Show results
+                const chapterCount = outlineItems.length - (pageOffset > 1 ? 1 : 0); // Don't count Front Matter
                 if (skippedItems.length > 0) {
                     status.className = 'status-box warning';
                     
-                    // Build DOM safely to prevent XSS
-                    status.textContent = ''; // Clear
+                    status.textContent = '';
                     
-                    const mainText = document.createTextNode(`PDF Generated with ${outlineItems.length} bookmarks. `);
+                    const mainText = document.createTextNode(`PDF Generated with ${outlineItems.length} bookmarks (${chapterCount} chapters${pageOffset > 1 ? ' + Front Matter' : ''}). `);
                     status.appendChild(mainText);
                     
                     const skippedDiv = document.createElement('div');
@@ -1648,7 +1689,7 @@
                     status.appendChild(skippedDiv);
                 } else {
                     status.className = 'status-box success';
-                    status.textContent = `PDF Generated with ${outlineItems.length} bookmarks!`;
+                    status.textContent = `PDF Generated with ${outlineItems.length} bookmarks (${chapterCount} chapters${pageOffset > 1 ? ' + Front Matter' : ''})!`;
                 }
 
             } catch (err) {
@@ -1660,6 +1701,7 @@
         }
 
         // --- Helpers ---
+        // Kept for potential future use in detecting Roman numerals
         function romanToArabic(s) {
             if (!s) return 0;
             const map = {i:1, v:5, x:10, l:50, c:100, d:500, m:1000};
@@ -1668,20 +1710,12 @@
             for (let i = 0; i < s.length; i++) {
                 const v1 = map[s[i]];
                 const v2 = map[s[i+1]];
-                if (!v1) continue; // Skip invalid characters
+                if (!v1) continue;
                 if (v2 && v2 > v1) res -= v1; else res += v1;
             }
             return res;
         }
-
-        function toRoman(num) {
-            const lookup = {M:1000,CM:900,D:500,CD:400,C:100,XC:90,L:50,XL:40,X:10,IX:9,V:5,IV:4,I:1};
-            let roman = '';
-            for (let i in lookup) {
-                while (num >= lookup[i]) { roman += i; num -= lookup[i]; }
-            }
-            return roman;
-        }
     </script>
 </body>
 </html>
+

@@ -439,6 +439,12 @@
         </details>
         
         <!-- Chapter List -->
+        <div id="front-matter-row" class="hidden" style="background: #f0fdf4; border: 1px solid #86efac; border-radius: 4px; padding: 10px 15px; margin-bottom: 10px; display: flex; align-items: center; gap: 10px;">
+            <span style="color: #166534; font-size: 1.1em;">📑</span>
+            <span style="flex: 1; font-weight: 500; color: #166534;">Front Matter (Title page, Table of Contents, Preface, etc.)</span>
+            <span style="color: #666; font-size: 0.85em;">PDF page 1</span>
+        </div>
+        
         <div class="toolbar">
             <button onclick="undo()" id="undo-btn" disabled class="secondary" style="padding: 5px 10px;">↶ Undo</button>
             <button onclick="redo()" id="redo-btn" disabled class="secondary" style="padding: 5px 10px;">↷ Redo</button>
@@ -819,6 +825,7 @@
             updatePageRangeHint();
 
             ['step2', 'step3', 'step4'].forEach(id => document.getElementById(id).classList.remove('hidden'));
+            updateFrontMatterDisplay();
             
             if (chapterListEl.children.length === 0) {
                 addChapter();
@@ -1258,33 +1265,59 @@
         function parsePageLastFormat(lines) {
             // Handles: inline page numbers, standalone page numbers, multi-line titles
             // Skips Roman numeral pages (front matter) - these will be covered by auto Front Matter bookmark
+            // Detects chapter markers like "Capítulo 1", "Chapter 2" and combines with following title
             const entries = [];
             let buffer = '';
+            let chapterPrefix = ''; // Stores "Capítulo 1", "Chapter 2", etc.
+            
+            // Pattern to detect chapter markers in various languages
+            // Matches: Chapter 1, Capítulo 2, Chapitre 3, Kapitel 4, Capitolo 5, Part 1, Section 2, etc.
+            const chapterMarkerPattern = /^(chapter|capítulo|capitulo|chapitre|kapitel|capitolo|parte|part|teil|section|sección|seccion|κεφάλαιο|глава|章)\s*(\d+)\.?$/i;
             
             for (const line of lines) {
                 const trimmedLine = line.trim();
+                
+                // Check if this is a chapter marker like "Capítulo 1"
+                const chapterMatch = trimmedLine.match(chapterMarkerPattern);
+                if (chapterMatch) {
+                    // Store the chapter marker to combine with the next title
+                    chapterPrefix = trimmedLine.replace(/\.?$/, ''); // Remove trailing period if any
+                    continue;
+                }
                 
                 // Is this line ONLY a page number?
                 const standaloneMatch = trimmedLine.match(/^(\d+|[ivxlcdm]+)\.?$/i);
                 
                 if (standaloneMatch) {
                     // Standalone page number - associate with buffered title
-                    if (buffer) {
+                    if (buffer || chapterPrefix) {
                         const pageStr = standaloneMatch[1];
                         
                         // Skip Roman numeral pages (front matter)
                         if (/^[ivxlcdm]+$/i.test(pageStr) && isNaN(pageStr)) {
                             buffer = '';
+                            chapterPrefix = '';
                             continue;
                         }
                         
                         const page = parseInt(pageStr, 10);
                         
+                        // Combine chapter prefix with title
+                        let fullTitle = '';
+                        if (chapterPrefix && buffer) {
+                            fullTitle = chapterPrefix + ': ' + buffer;
+                        } else if (chapterPrefix) {
+                            fullTitle = chapterPrefix;
+                        } else {
+                            fullTitle = buffer;
+                        }
+                        
                         entries.push({ 
-                            title: cleanTitle(buffer), 
+                            title: cleanTitle(fullTitle), 
                             page 
                         });
                         buffer = '';
+                        chapterPrefix = '';
                     }
                     continue;
                 }
@@ -1300,14 +1333,26 @@
                     // Skip Roman numeral pages (front matter)
                     if (/^[ivxlcdm]+$/i.test(potentialPage) && isNaN(potentialPage)) {
                         buffer = '';
+                        chapterPrefix = '';
                         continue;
                     }
                     
                     // Make sure it's actually a page number (not part of title like "Chapter 1")
                     const titleWithoutTrailing = potentialTitle.replace(/[._\-\s]+$/, '').trim();
                     
-                    if (titleWithoutTrailing.length > 0 && /[a-zA-Z]/.test(titleWithoutTrailing)) {
-                        const fullTitle = buffer ? buffer + ' ' + titleWithoutTrailing : titleWithoutTrailing;
+                    // Check if the whole line is a chapter marker with page
+                    // e.g., "Capítulo 1 Introducción 5" shouldn't be split wrong
+                    if (titleWithoutTrailing.length > 0 && /[a-zA-ZáéíóúñüÁÉÍÓÚÑÜ]/.test(titleWithoutTrailing)) {
+                        // Combine chapter prefix + buffer + this title
+                        let fullTitle = '';
+                        const combinedTitle = buffer ? buffer + ' ' + titleWithoutTrailing : titleWithoutTrailing;
+                        
+                        if (chapterPrefix) {
+                            fullTitle = chapterPrefix + ': ' + combinedTitle;
+                        } else {
+                            fullTitle = combinedTitle;
+                        }
+                        
                         const page = parseInt(potentialPage, 10);
                         
                         entries.push({ 
@@ -1315,6 +1360,7 @@
                             page 
                         });
                         buffer = '';
+                        chapterPrefix = '';
                         continue;
                     }
                 }
@@ -1392,7 +1438,18 @@
         }
         
         // Re-validate when offset changes
-        pageOffsetInput.addEventListener('change', validateAllChapters);
+        pageOffsetInput.addEventListener('change', () => {
+            validateAllChapters();
+            updateFrontMatterDisplay();
+        });
+        
+        function updateFrontMatterDisplay() {
+            const pageOffset = parseInt(pageOffsetInput.value) || 1;
+            const frontMatterRow = document.getElementById('front-matter-row');
+            if (frontMatterRow) {
+                frontMatterRow.classList.toggle('hidden', pageOffset <= 1);
+            }
+        }
 
         // --- Chapter Management ---
         function addChapterWithData(title, page) {
@@ -1718,4 +1775,3 @@
     </script>
 </body>
 </html>
-

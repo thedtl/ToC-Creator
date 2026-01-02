@@ -1,1777 +1,1824 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PDF ToC Tool</title>
-    <!-- Libraries -->
-    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-    
-    <style>
-        :root {
-            --primary: #2563eb;
-            --primary-hover: #1d4ed8;
-            --bg: #f3f4f6;
-            --card-bg: #ffffff;
-            --text: #1f2937;
-            --border: #e5e7eb;
-            --danger: #dc2626;
-            --danger-light: #fef2f2;
-        }
-        
-        * { box-sizing: border-box; }
-        
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            max-width: 900px;
-            margin: 0 auto;
-            padding: 20px;
-            background: var(--bg);
-            color: var(--text);
-            line-height: 1.5;
-        }
-        
-        h1 {
-            color: #111827;
-            border-bottom: 3px solid var(--primary);
-            padding-bottom: 15px;
-            margin-bottom: 30px;
-        }
-        
-        .card {
-            background: var(--card-bg);
-            border-radius: 8px;
-            padding: 25px;
-            margin-bottom: 25px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-            border: 1px solid var(--border);
-        }
-        
-        .card h2 {
-            margin-top: 0;
-            font-size: 1.25rem;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        
-        .step-number {
-            background: var(--primary);
-            color: white;
-            width: 28px;
-            height: 28px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 0.9rem;
-            font-weight: bold;
-        }
-        
-        /* Inputs & Buttons */
-        input[type="text"], input[type="number"], select, textarea {
-            width: 100%;
-            padding: 10px;
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            margin-bottom: 10px;
-            font-size: 14px;
-        }
-        
-        button {
-            background: var(--primary);
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 500;
-            transition: background 0.2s;
-        }
-        
-        button:hover { background: var(--primary-hover); }
-        button:disabled { background: #9ca3af; cursor: not-allowed; }
-        
-        button.secondary { background: #6b7280; }
-        button.secondary:hover { background: #4b5563; }
-        
-        button.success { background: #059669; }
-        button.success:hover { background: #047857; }
-        
-        button.danger { background: #dc2626; }
-        button.danger:hover { background: #b91c1c; }
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PDF ToC Tool</title>
 
-        /* Chapter List */
-        .chapter-row {
-            display: flex;
-            gap: 10px;
-            align-items: center;
-            padding: 8px;
-            background: #f9fafb;
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            margin-bottom: 8px;
-            transition: background 0.2s, border-color 0.2s;
-        }
-        
-        .chapter-row.selected {
-            background: #eff6ff;
-            border-color: var(--primary);
-        }
-        
-        .chapter-row.dragging {
-            opacity: 0.5;
-        }
-        
-        .chapter-row.invalid {
-            background: var(--danger-light);
-            border-color: var(--danger);
-        }
-        
-        .chapter-row .validation-msg {
-            font-size: 11px;
-            color: var(--danger);
-            display: none;
-            width: 100%;
-            margin-top: 4px;
-            padding-left: 30px;
-        }
-        
-        .chapter-row.invalid .validation-msg {
-            display: block;
-        }
-        
-        .chapter-row input { margin-bottom: 0; }
-        .chapter-row .chapter-title { flex: 1; }
-        .chapter-row .chapter-page { width: 80px; text-align: center; }
-        
-        .chapter-row.invalid .chapter-page {
-            border-color: var(--danger);
-            background: var(--danger-light);
-        }
-        
-        .drag-handle {
-            cursor: grab;
-            color: #9ca3af;
-            padding: 0 5px;
-            font-size: 18px;
-            user-select: none;
-        }
-        
-        .drag-handle:active {
-            cursor: grabbing;
-        }
+  <!-- Libraries -->
+  <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 
-        /* OCR Area */
-        .ocr-input-area {
-            border: 2px dashed #d1d5db;
-            border-radius: 8px;
-            padding: 40px;
-            text-align: center;
-            cursor: pointer;
-            transition: all 0.2s;
-            background: #f9fafb;
-        }
-        .ocr-input-area:hover, .ocr-input-area.dragover {
-            border-color: var(--primary);
-            background: #eff6ff;
-        }
-        
-        .ocr-preview-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-            gap: 10px;
-            margin-bottom: 15px;
-        }
-        
-        .ocr-preview-item {
-            position: relative;
-            border: 1px solid var(--border);
-            border-radius: 4px;
-            overflow: hidden;
-        }
-        
-        .ocr-preview-item img {
-            width: 100%;
-            height: auto;
-            display: block;
-        }
-        
-        .ocr-preview-item button {
-            position: absolute;
-            top: 2px;
-            right: 2px;
-            padding: 2px 6px;
-            font-size: 12px;
-            background: rgba(220, 38, 38, 0.9);
-        }
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --bg: #f3f4f6;
+      --card-bg: #ffffff;
+      --text: #1f2937;
+      --border: #e5e7eb;
+      --danger: #dc2626;
+      --danger-light: #fef2f2;
+    }
 
-        /* Utilities */
-        .hidden { display: none !important; }
-        .flex-row { display: flex; gap: 10px; align-items: center; }
-        .button-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 15px; }
-        
-        .toolbar {
-            background: #e5e7eb;
-            padding: 8px;
-            border-radius: 6px;
-            margin-bottom: 15px;
-            display: flex;
-            gap: 8px;
-            align-items: center;
-            flex-wrap: wrap;
-        }
-        
-        .toolbar .separator {
-            width: 1px;
-            height: 20px;
-            background: #ccc;
-            margin: 0 5px;
-        }
+    * { box-sizing: border-box; }
 
-        #preview-canvas {
-            border: 1px solid var(--border);
-            max-width: 100%;
-            max-height: 500px;
-            margin-top: 10px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-            object-fit: contain;
-        }
-        
-        .status-box {
-            padding: 15px;
-            border-radius: 6px;
-            margin-top: 15px;
-        }
-        .status-box.success { background: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; }
-        .status-box.error { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
-        .status-box.processing { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
-        .status-box.warning { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
-        
-        .skipped-list {
-            margin-top: 10px;
-            padding: 10px;
-            background: rgba(0,0,0,0.05);
-            border-radius: 4px;
-            font-size: 13px;
-            max-height: 150px;
-            overflow-y: auto;
-        }
-        
-        .skipped-list ul {
-            margin: 5px 0 0 0;
-            padding-left: 20px;
-        }
-        
-        /* OCR Settings */
-        .ocr-settings {
-            display: flex;
-            gap: 15px;
-            align-items: center;
-            margin-bottom: 10px;
-            padding: 10px;
-            background: #f3f4f6;
-            border-radius: 6px;
-            flex-wrap: wrap;
-        }
-        
-        .ocr-settings label {
-            font-size: 13px;
-            display: flex;
-            align-items: center;
-            gap: 5px;
-        }
-        
-        .ocr-settings select {
-            width: auto;
-            margin: 0;
-            padding: 5px 10px;
-        }
-    </style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 20px;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+
+    h1 {
+      color: #111827;
+      border-bottom: 3px solid var(--primary);
+      padding-bottom: 15px;
+      margin-bottom: 30px;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border-radius: 8px;
+      padding: 25px;
+      margin-bottom: 25px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      border: 1px solid var(--border);
+    }
+
+    .card h2 {
+      margin-top: 0;
+      font-size: 1.25rem;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .step-number {
+      background: var(--primary);
+      color: white;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.9rem;
+      font-weight: bold;
+    }
+
+    input[type="text"], input[type="number"], select, textarea {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-bottom: 10px;
+      font-size: 14px;
+    }
+
+    textarea {
+      min-height: 160px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      white-space: pre;
+    }
+
+    button {
+      background: var(--primary);
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: background 0.2s;
+    }
+
+    button:hover { background: var(--primary-hover); }
+    button:disabled { background: #9ca3af; cursor: not-allowed; }
+
+    button.secondary { background: #6b7280; }
+    button.secondary:hover { background: #4b5563; }
+
+    button.success { background: #059669; }
+    button.success:hover { background: #047857; }
+
+    button.danger { background: #dc2626; }
+    button.danger:hover { background: #b91c1c; }
+
+    .chapter-row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      padding: 8px;
+      background: #f9fafb;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-bottom: 8px;
+      transition: background 0.2s, border-color 0.2s;
+      flex-wrap: wrap;
+    }
+
+    .chapter-row.selected {
+      background: #eff6ff;
+      border-color: var(--primary);
+    }
+
+    .chapter-row.dragging { opacity: 0.5; }
+
+    .chapter-row.invalid {
+      background: var(--danger-light);
+      border-color: var(--danger);
+    }
+
+    .chapter-row .validation-msg {
+      font-size: 11px;
+      color: var(--danger);
+      display: none;
+      width: 100%;
+      margin-top: 4px;
+      padding-left: 30px;
+    }
+
+    .chapter-row.invalid .validation-msg { display: block; }
+
+    .chapter-row input { margin-bottom: 0; }
+    .chapter-row .chapter-title { flex: 1; min-width: 240px; }
+    .chapter-row .chapter-page { width: 90px; text-align: center; }
+
+    .chapter-row.invalid .chapter-page {
+      border-color: var(--danger);
+      background: var(--danger-light);
+    }
+
+    .drag-handle {
+      cursor: grab;
+      color: #9ca3af;
+      padding: 0 5px;
+      font-size: 18px;
+      user-select: none;
+    }
+
+    .drag-handle:active { cursor: grabbing; }
+
+    .ocr-input-area {
+      border: 2px dashed #d1d5db;
+      border-radius: 8px;
+      padding: 40px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      background: #f9fafb;
+    }
+    .ocr-input-area:hover, .ocr-input-area.dragover {
+      border-color: var(--primary);
+      background: #eff6ff;
+    }
+
+    .ocr-preview-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: 10px;
+      margin-bottom: 15px;
+    }
+
+    .ocr-preview-item {
+      position: relative;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .ocr-preview-item img {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    .ocr-preview-item button {
+      position: absolute;
+      top: 2px;
+      right: 2px;
+      padding: 2px 6px;
+      font-size: 12px;
+      background: rgba(220, 38, 38, 0.9);
+    }
+
+    .hidden { display: none !important; }
+    .flex-row { display: flex; gap: 10px; align-items: center; }
+    .button-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 15px; }
+
+    .toolbar {
+      background: #e5e7eb;
+      padding: 8px;
+      border-radius: 6px;
+      margin-bottom: 15px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .toolbar .separator {
+      width: 1px;
+      height: 20px;
+      background: #ccc;
+      margin: 0 5px;
+    }
+
+    #preview-canvas {
+      border: 1px solid var(--border);
+      max-width: 100%;
+      max-height: 500px;
+      margin-top: 10px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+      object-fit: contain;
+    }
+
+    .status-box {
+      padding: 15px;
+      border-radius: 6px;
+      margin-top: 15px;
+    }
+    .status-box.success { background: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; }
+    .status-box.error { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+    .status-box.processing { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+    .status-box.warning { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+
+    .skipped-list {
+      margin-top: 10px;
+      padding: 10px;
+      background: rgba(0,0,0,0.05);
+      border-radius: 4px;
+      font-size: 13px;
+      max-height: 150px;
+      overflow-y: auto;
+    }
+
+    .skipped-list ul {
+      margin: 5px 0 0 0;
+      padding-left: 20px;
+    }
+
+    .ocr-settings {
+      display: flex;
+      gap: 15px;
+      align-items: center;
+      margin-bottom: 10px;
+      padding: 10px;
+      background: #f3f4f6;
+      border-radius: 6px;
+      flex-wrap: wrap;
+    }
+
+    .ocr-settings label {
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .ocr-settings select {
+      width: auto;
+      margin: 0;
+      padding: 5px 10px;
+    }
+
+    .small-note {
+      font-size: 11px;
+      color: #666;
+    }
+
+    details summary {
+      user-select: none;
+    }
+  </style>
 </head>
+
 <body>
-    <h1>📚 PDF ToC Tool</h1>
-    
-    <!-- Step 1: Upload -->
-    <div class="card">
-        <h2><span class="step-number">1</span> Select PDF</h2>
-        
-        <div style="display: flex; gap: 15px; flex-wrap: wrap; align-items: flex-start;">
-            <div style="flex: 1; min-width: 200px;">
-                <label style="font-size: 0.9em; margin-bottom: 5px;">From your computer:</label>
-                <input type="file" id="pdf-file" accept=".pdf">
-            </div>
-            
-            <div style="display: flex; align-items: center; color: #999; font-weight: 500;">OR</div>
-            
-            <div style="flex: 2; min-width: 280px;">
-                <label style="font-size: 0.9em; margin-bottom: 5px;">From Dropbox URL:</label>
-                <div style="display: flex; gap: 8px;">
-                    <input type="text" id="pdf-url" placeholder="https://www.dropbox.com/s/..." style="flex: 1; margin-bottom: 0;">
-                    <button onclick="loadFromUrl()" id="load-url-btn" class="secondary">Load</button>
-                </div>
-                <div style="font-size: 11px; color: #888; margin-top: 4px;">Paste a Dropbox share link</div>
-            </div>
+  <h1>📚 PDF ToC Tool</h1>
+
+  <!-- Step 1: Upload -->
+  <div class="card">
+    <h2><span class="step-number">1</span> Select PDF</h2>
+
+    <div style="display: flex; gap: 15px; flex-wrap: wrap; align-items: flex-start;">
+      <div style="flex: 1; min-width: 200px;">
+        <label style="font-size: 0.9em; margin-bottom: 5px;">From your computer:</label>
+        <input type="file" id="pdf-file" accept=".pdf">
+      </div>
+
+      <div style="display: flex; align-items: center; color: #999; font-weight: 500;">OR</div>
+
+      <div style="flex: 2; min-width: 280px;">
+        <label style="font-size: 0.9em; margin-bottom: 5px;">From Dropbox URL:</label>
+        <div style="display: flex; gap: 8px;">
+          <input type="text" id="pdf-url" placeholder="https://www.dropbox.com/s/..." style="flex: 1; margin-bottom: 0;">
+          <button onclick="loadFromUrl()" id="load-url-btn" class="secondary">Load</button>
         </div>
-        
-        <div id="file-info" class="hidden" style="margin-top: 15px; font-weight: 500;"></div>
-        <div id="url-error" class="hidden" style="margin-top: 10px; padding: 10px; background: #fee2e2; color: #991b1b; border-radius: 4px; font-size: 13px;"></div>
+        <div style="font-size: 11px; color: #888; margin-top: 4px;">Paste a Dropbox share link</div>
+      </div>
     </div>
-    
-    <!-- Step 2: Offset -->
-    <div class="card hidden" id="step2">
-        <h2><span class="step-number">2</span> Page Offset</h2>
-        <p style="color: #666; font-size: 0.9em; margin-bottom: 15px;">
-            Find the PDF page that shows the book's "Page 1" (not the cover or table of contents).
+
+    <div id="file-info" class="hidden" style="margin-top: 15px; font-weight: 500;"></div>
+    <div id="url-error" class="hidden" style="margin-top: 10px; padding: 10px; background: #fee2e2; color: #991b1b; border-radius: 4px; font-size: 13px;"></div>
+  </div>
+
+  <!-- Step 2: Offset -->
+  <div class="card hidden" id="step2">
+    <h2><span class="step-number">2</span> Page Offset</h2>
+    <p style="color: #666; font-size: 0.9em; margin-bottom: 15px;">
+      Find the PDF page that shows the book's "Page 1" (not the cover or table of contents).
+    </p>
+
+    <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+      <div style="flex: 1; min-width: 250px;">
+        <label>Book Page 1 is on PDF Page:</label>
+        <input type="number" id="page-offset" value="1" min="1">
+        <p style="font-size: 0.8em; color: #888; margin-top: 8px;">
+          Everything before this will be bookmarked as "Front Matter"
         </p>
-        
-        <div style="display: flex; gap: 20px; flex-wrap: wrap;">
-            <div style="flex: 1; min-width: 250px;">
-                <label>Book Page 1 is on PDF Page:</label>
-                <input type="number" id="page-offset" value="1" min="1">
-                <p style="font-size: 0.8em; color: #888; margin-top: 8px;">
-                    Everything before this will be bookmarked as "Front Matter"
-                </p>
-            </div>
-            
-            <div style="flex: 1; min-width: 250px;">
-                <div class="flex-row" style="justify-content: space-between; margin-bottom: 5px; flex-wrap: wrap; gap: 5px;">
-                    <div class="flex-row">
-                        <button onclick="previewPage(-1)" class="secondary" style="padding: 5px 10px;">◀</button>
-                        <span id="preview-page-num" style="font-weight: bold; min-width: 60px; text-align: center;">Page 1</span>
-                        <button onclick="previewPage(1)" class="secondary" style="padding: 5px 10px;">▶</button>
-                    </div>
-                    <div class="flex-row">
-                        <select id="preview-scale" onchange="renderPreview(currentPreviewPage)" style="width: auto; margin: 0; padding: 5px;" title="Preview resolution">
-                            <option value="1">1x</option>
-                            <option value="1.5">1.5x</option>
-                            <option value="2" selected>2x</option>
-                            <option value="3">3x HD</option>
-                            <option value="4">4x Ultra</option>
-                        </select>
-                        <button onclick="savePreviewImage()" class="secondary" style="padding: 5px 10px;" title="Save current page as PNG">📷 Save</button>
-                    </div>
-                </div>
-                <canvas id="preview-canvas" style="cursor: pointer;" onclick="openPreviewFullSize()" title="Click to open full-size in new tab"></canvas>
-                <div style="font-size: 11px; color: #888; margin-top: 4px; text-align: center;">Click image to open full-size</div>
-            </div>
+      </div>
+
+      <div style="flex: 1; min-width: 250px;">
+        <div class="flex-row" style="justify-content: space-between; margin-bottom: 5px; flex-wrap: wrap; gap: 5px;">
+          <div class="flex-row">
+            <button onclick="previewPage(-1)" class="secondary" style="padding: 5px 10px;">◀</button>
+            <span id="preview-page-num" style="font-weight: bold; min-width: 60px; text-align: center;">Page 1</span>
+            <button onclick="previewPage(1)" class="secondary" style="padding: 5px 10px;">▶</button>
+          </div>
+          <div class="flex-row">
+            <select id="preview-scale" onchange="renderPreview(currentPreviewPage)" style="width: auto; margin: 0; padding: 5px;" title="Preview resolution">
+              <option value="1">1x</option>
+              <option value="1.5">1.5x</option>
+              <option value="2" selected>2x</option>
+              <option value="3">3x HD</option>
+              <option value="4">4x Ultra</option>
+            </select>
+            <button onclick="savePreviewImage()" class="secondary" style="padding: 5px 10px;" title="Save current page as PNG">📷 Save</button>
+          </div>
         </div>
+        <canvas id="preview-canvas" style="cursor: pointer;" onclick="openPreviewFullSize()" title="Click to open full-size in new tab"></canvas>
+        <div style="font-size: 11px; color: #888; margin-top: 4px; text-align: center;">Click image to open full-size</div>
+      </div>
     </div>
-    
-    <!-- Step 3: ToC -->
-    <div class="card hidden" id="step3">
-        <h2><span class="step-number">3</span> Table of Contents</h2>
-        
-        <!-- Primary: Extract from PDF -->
-        <div style="background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
-            <div style="font-weight: 600; margin-bottom: 10px; color: #0369a1;">📄 Extract ToC from PDF</div>
-            <p style="font-size: 0.9em; color: #666; margin-bottom: 15px;">
-                Use the preview above to find your Table of Contents pages, then enter the page range below.
-            </p>
-            
-            <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap; margin-bottom: 10px;">
-                <label style="display: flex; align-items: center; gap: 5px; font-size: 0.9em;">
-                    ToC starts on page:
-                    <input type="number" id="toc-start-page" value="1" min="1" style="width: 70px; margin: 0; padding: 5px;">
-                </label>
-                <label style="display: flex; align-items: center; gap: 5px; font-size: 0.9em;">
-                    ToC ends on page:
-                    <input type="number" id="toc-end-page" value="1" min="1" style="width: 70px; margin: 0; padding: 5px;">
-                </label>
-            </div>
-            
-            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-                <button onclick="setTocToCurrentPage()" class="secondary" style="padding: 8px 12px; font-size: 0.85em;">Set to current page</button>
-                <button onclick="extractAndParseToc()" class="success" id="extract-btn" style="padding: 8px 16px;">Extract & Parse ToC</button>
-                <span id="page-range-hint" style="font-size: 0.85em; color: #666;"></span>
-            </div>
-            
-            <div style="margin-top: 10px;">
-                <label style="display: flex; align-items: center; gap: 5px; font-size: 0.85em; color: #666;">
-                    <input type="checkbox" id="filter-subchapters" checked style="width: auto; margin: 0;">
-                    Skip subchapters (1.1, 2.3, etc.)
-                </label>
-            </div>
-            
-            <div id="extract-status" class="status-box hidden" style="margin-top: 10px;"></div>
+  </div>
+
+  <!-- Step 3: ToC -->
+  <div class="card hidden" id="step3">
+    <h2><span class="step-number">3</span> Table of Contents</h2>
+
+    <!-- Primary: Extract from PDF -->
+    <div style="background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+      <div style="font-weight: 600; margin-bottom: 10px; color: #0369a1;">📄 Extract ToC from PDF</div>
+      <p style="font-size: 0.9em; color: #666; margin-bottom: 15px;">
+        Use the preview above to find your Table of Contents pages, then enter the page range below.
+      </p>
+
+      <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap; margin-bottom: 10px;">
+        <label style="display: flex; align-items: center; gap: 5px; font-size: 0.9em;">
+          ToC starts on page:
+          <input type="number" id="toc-start-page" value="1" min="1" style="width: 70px; margin: 0; padding: 5px;">
+        </label>
+        <label style="display: flex; align-items: center; gap: 5px; font-size: 0.9em;">
+          ToC ends on page:
+          <input type="number" id="toc-end-page" value="1" min="1" style="width: 70px; margin: 0; padding: 5px;">
+        </label>
+      </div>
+
+      <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+        <button onclick="setTocToCurrentPage()" class="secondary" style="padding: 8px 12px; font-size: 0.85em;">Set to current page</button>
+        <button onclick="extractAndParseToc()" class="success" id="extract-btn" style="padding: 8px 16px;">Extract & Parse ToC</button>
+        <span id="page-range-hint" style="font-size: 0.85em; color: #666;"></span>
+      </div>
+
+      <div style="margin-top: 12px; display: flex; flex-direction: column; gap: 8px;">
+        <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85em; color: #666;">
+          <input type="checkbox" id="filter-subchapters" checked style="width: auto; margin: 0;">
+          Skip subchapters (1.1, 2.3, etc.)
+        </label>
+
+        <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85em; color: #666;">
+          <input type="checkbox" id="replace-existing" checked style="width: auto; margin: 0;">
+          Replace existing chapter list when parsing
+        </label>
+
+        <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85em; color: #666;">
+          <input type="checkbox" id="prefix-section-headers" checked style="width: auto; margin: 0;">
+          Prefix section headers (Introducción, Conclusión, Apéndices) onto the next entry
+        </label>
+
+        <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85em; color: #666;">
+          <input type="checkbox" id="fix-spaced-section-numbers" checked style="width: auto; margin: 0;">
+          Fix spaced section numbers inside titles (example: "1 5 Más..." becomes "1.5 Más...")
+        </label>
+      </div>
+
+      <div id="extract-status" class="status-box hidden" style="margin-top: 10px;"></div>
+
+      <details style="margin-top: 12px;">
+        <summary style="cursor: pointer; font-weight: 500; color: #444; padding: 10px; background: #f5f5f5; border-radius: 6px;">
+          🔎 Show raw extracted ToC text (debug)
+        </summary>
+        <div style="margin-top: 10px;">
+          <div class="small-note" style="margin-bottom: 6px;">
+            If parsing misses entries, this box shows exactly what PDF.js extracted, so you can see whether the issue is extraction or parsing.
+          </div>
+          <textarea id="toc-raw-text" readonly placeholder="Raw extracted text will appear here..."></textarea>
+          <div class="button-row">
+            <button class="secondary" onclick="copyRawToc()">Copy</button>
+            <button class="secondary" onclick="downloadRawToc()">Download .txt</button>
+          </div>
         </div>
-        
-        <!-- Fallback: OCR (collapsed by default) -->
-        <details style="margin-bottom: 20px;">
-            <summary style="cursor: pointer; font-weight: 500; color: #666; padding: 10px; background: #f5f5f5; border-radius: 4px;">
-                ⚙️ Advanced: Use OCR (for scanned PDFs without text layer)
-            </summary>
-            <div style="padding: 15px; border: 1px solid #e5e5e5; border-top: none; border-radius: 0 0 4px 4px;">
-                <p style="font-size: 0.85em; color: #888; margin-bottom: 15px;">
-                    Only use this if the PDF is a pure image scan. Most PDFs have extractable text.
-                </p>
-                <div class="ocr-input-area" id="ocr-drop-zone">
-                    <input type="file" id="toc-image" accept="image/*" multiple style="display: none;">
-                    <div style="font-size: 1em; font-weight: 500; margin-bottom: 5px;">Paste Screenshot (Ctrl+V)</div>
-                    <div style="color: #666; font-size: 0.9em;">or click to upload images</div>
-                </div>
-                
-                <div id="ocr-preview-container" class="hidden" style="margin-top: 15px;">
-                    <div id="ocr-previews" class="ocr-preview-grid"></div>
-                    
-                    <div style="margin: 10px 0; padding: 10px; background: #f9f9f9; border-radius: 4px;">
-                        <label style="font-size: 0.85em; display: flex; align-items: center; gap: 8px;">
-                            Layout mode:
-                            <select id="ocr-psm" style="width: auto; margin: 0; padding: 4px 8px; font-size: 0.85em;">
-                                <option value="6" selected>Single column (default)</option>
-                                <option value="4">Single column, variable sizes</option>
-                                <option value="3">Auto-detect layout</option>
-                                <option value="11">Sparse text</option>
-                                <option value="1">Auto with orientation detection</option>
-                            </select>
-                        </label>
-                    </div>
-                    
-                    <div class="button-row" style="margin-top: 10px;">
-                        <button onclick="runOcrAndParse()" class="success" id="ocr-btn">🔍 Run OCR & Parse</button>
-                        <button onclick="clearImages()" class="secondary">Clear</button>
-                    </div>
-                    <div id="ocr-status" class="status-box hidden"></div>
-                </div>
-            </div>
-        </details>
-        
-        <!-- Chapter List -->
-        <div id="front-matter-row" class="hidden" style="background: #f0fdf4; border: 1px solid #86efac; border-radius: 4px; padding: 10px 15px; margin-bottom: 10px; display: flex; align-items: center; gap: 10px;">
-            <span style="color: #166534; font-size: 1.1em;">📑</span>
-            <span style="flex: 1; font-weight: 500; color: #166534;">Front Matter (Title page, Table of Contents, Preface, etc.)</span>
-            <span style="color: #666; font-size: 0.85em;">PDF page 1</span>
-        </div>
-        
-        <div class="toolbar">
-            <button onclick="undo()" id="undo-btn" disabled class="secondary" style="padding: 5px 10px;">↶ Undo</button>
-            <button onclick="redo()" id="redo-btn" disabled class="secondary" style="padding: 5px 10px;">↷ Redo</button>
-            <div class="separator"></div>
-            <button onclick="sortChapters()" class="secondary" style="padding: 5px 10px;">Sort by Page</button>
-            <button onclick="validateAllChapters()" class="secondary" style="padding: 5px 10px;">Validate</button>
-            <span style="margin-left: auto; font-size: 0.8em; color: #666;">Drag to reorder</span>
-        </div>
-        
-        <div id="chapter-list"></div>
-        <button onclick="addChapter()" style="margin-top: 10px; width: 100%; background: #e5e7eb; color: #333;">+ Add Chapter Manually</button>
-    </div>
-    
-    <!-- Step 4: Generate -->
-    <div class="card hidden" id="step4">
-        <h2><span class="step-number">4</span> Generate PDF</h2>
-        
-        <div style="margin-bottom: 15px;">
-            <label style="font-size: 0.9em;">Output filename:</label>
-            <input type="text" id="output-filename" placeholder="processed_document.pdf" style="margin-bottom: 0;">
-        </div>
-        
-        <button onclick="processPdf()" class="success" id="process-btn" style="width: 100%; font-size: 1.1em; padding: 15px;">Download PDF with Bookmarks</button>
-        <div id="status" class="status-box hidden"></div>
+      </details>
     </div>
 
-    <script>
-        // --- Configuration ---
-        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+    <!-- Fallback: OCR -->
+    <details style="margin-bottom: 20px;">
+      <summary style="cursor: pointer; font-weight: 500; color: #666; padding: 10px; background: #f5f5f5; border-radius: 4px;">
+        ⚙️ Advanced: Use OCR (for scanned PDFs without text layer)
+      </summary>
+      <div style="padding: 15px; border: 1px solid #e5e5e5; border-top: none; border-radius: 0 0 4px 4px;">
+        <p style="font-size: 0.85em; color: #888; margin-bottom: 15px;">
+          Only use this if the PDF is a pure image scan. Most PDFs have extractable text.
+        </p>
 
-        // --- State ---
-        let pdfDoc = null;
-        let pdfBytes = null;
-        let totalPages = 0;
-        let currentPreviewPage = 1;
-        let ocrImages = [];
-        let ocrWorker = null;
-        let history = [];
-        let historyIndex = -1;
-        let isUndoRedo = false;
-        let isBulkEdit = false; // Prevent history spam during bulk operations
-        let urlFetchController = null; // AbortController for URL fetches
+        <div class="ocr-settings">
+          <label>
+            OCR languages:
+            <select id="ocr-lang">
+              <option value="spa,eng" selected>Spanish + English</option>
+              <option value="spa">Spanish only</option>
+              <option value="eng">English only</option>
+            </select>
+          </label>
 
-        // --- DOM Elements ---
-        const chapterListEl = document.getElementById('chapter-list');
-        const pageOffsetInput = document.getElementById('page-offset');
-        const dropZone = document.getElementById('ocr-drop-zone');
-        const tocImageInput = document.getElementById('toc-image');
-        const tocStartPageInput = document.getElementById('toc-start-page');
-        const tocEndPageInput = document.getElementById('toc-end-page');
+          <label>
+            Layout mode:
+            <select id="ocr-psm" style="width: auto; margin: 0; padding: 4px 8px; font-size: 0.85em;">
+              <option value="6" selected>Single column (default)</option>
+              <option value="4">Single column, variable sizes</option>
+              <option value="3">Auto-detect layout</option>
+              <option value="11">Sparse text</option>
+              <option value="1">Auto with orientation detection</option>
+            </select>
+          </label>
+        </div>
 
-        // --- PDF Text Extraction & Parsing ---
-        async function extractAndParseToc() {
-            if (!pdfDoc) {
-                alert('Please load a PDF first');
-                return;
-            }
-            
-            const startPage = parseInt(tocStartPageInput.value) || 1;
-            const endPage = parseInt(tocEndPageInput.value) || startPage;
-            const status = document.getElementById('extract-status');
-            const btn = document.getElementById('extract-btn');
-            
-            if (startPage < 1 || endPage > totalPages || startPage > endPage) {
-                status.className = 'status-box error';
-                status.textContent = `Invalid page range. PDF has ${totalPages} pages.`;
-                status.classList.remove('hidden');
-                return;
-            }
-            
-            btn.disabled = true;
-            btn.textContent = 'Extracting...';
-            status.className = 'status-box processing';
-            status.textContent = 'Extracting text from PDF...';
-            status.classList.remove('hidden');
-            
-            try {
-                let allText = '';
-                
-                for (let pageNum = startPage; pageNum <= endPage; pageNum++) {
-                    status.textContent = `Extracting page ${pageNum} of ${endPage}...`;
-                    
-                    const page = await pdfDoc.getPage(pageNum);
-                    const textContent = await page.getTextContent();
-                    
-                    // Sort items by position: y descending (top to bottom), then x ascending (left to right)
-                    const sortedItems = textContent.items
-                        .filter(item => item.str && item.str.trim() !== '')
-                        .sort((a, b) => {
-                            const yA = a.transform[5];
-                            const yB = b.transform[5];
-                            const xA = a.transform[4];
-                            const xB = b.transform[4];
-                            
-                            if (Math.abs(yA - yB) > 3) {
-                                return yB - yA;
-                            }
-                            return xA - xB;
-                        });
-                    
-                    let lastY = null;
-                    let lineText = '';
-                    
-                    for (const item of sortedItems) {
-                        const y = item.transform[5];
-                        const hasExplicitEOL = item.hasEOL === true;
-                        const isNewLine = lastY !== null && Math.abs(y - lastY) > 3;
-                        
-                        if (isNewLine) {
-                            if (lineText.trim()) {
-                                allText += lineText.trim() + '\n';
-                            }
-                            lineText = item.str;
-                        } else {
-                            if (lineText && !lineText.endsWith(' ') && !item.str.startsWith(' ')) {
-                                lineText += ' ';
-                            }
-                            lineText += item.str;
-                        }
-                        
-                        if (hasExplicitEOL && lineText.trim()) {
-                            allText += lineText.trim() + '\n';
-                            lineText = '';
-                            lastY = null;
-                        } else {
-                            lastY = y;
-                        }
-                    }
-                    
-                    if (lineText.trim()) {
-                        allText += lineText.trim() + '\n';
-                    }
-                    allText += '\n';
-                }
-                
-                const cleanedText = allText.trim();
-                if (cleanedText.length < 20) {
-                    status.className = 'status-box warning';
-                    status.textContent = 'Very little text found. This PDF may be a scanned image. Try the OCR option below.';
-                    btn.disabled = false;
-                    btn.textContent = 'Extract & Parse ToC';
-                    return;
-                }
-                
-                // Parse the text directly
-                status.textContent = 'Parsing chapters...';
-                const result = parseTocText(cleanedText);
-                
-                if (result.count > 0) {
-                    status.className = 'status-box success';
-                    let msg = `Found ${result.count} chapters.`;
-                    if (result.skippedSubchapters > 0) {
-                        msg += ` (Skipped ${result.skippedSubchapters} subchapters)`;
-                    }
-                    status.textContent = msg;
-                    validateAllChapters();
-                } else {
-                    status.className = 'status-box warning';
-                    status.textContent = 'Could not find any chapters. The ToC format may not be recognized.';
-                }
-                
-            } catch (err) {
-                console.error(err);
-                status.className = 'status-box error';
-                status.textContent = 'Error: ' + err.message;
-            }
-            
-            btn.disabled = false;
-            btn.textContent = 'Extract & Parse ToC';
+        <div class="ocr-input-area" id="ocr-drop-zone">
+          <input type="file" id="toc-image" accept="image/*" multiple style="display: none;">
+          <div style="font-size: 1em; font-weight: 500; margin-bottom: 5px;">Paste Screenshot (Ctrl+V)</div>
+          <div style="color: #666; font-size: 0.9em;">or click to upload images</div>
+        </div>
+
+        <div id="ocr-preview-container" class="hidden" style="margin-top: 15px;">
+          <div id="ocr-previews" class="ocr-preview-grid"></div>
+
+          <div class="button-row" style="margin-top: 10px;">
+            <button onclick="runOcrAndParse()" class="success" id="ocr-btn">🔍 Run OCR & Parse</button>
+            <button onclick="clearImages()" class="secondary">Clear</button>
+          </div>
+          <div id="ocr-status" class="status-box hidden"></div>
+        </div>
+      </div>
+    </details>
+
+    <!-- Chapter List -->
+    <div id="front-matter-row" class="hidden" style="background: #f0fdf4; border: 1px solid #86efac; border-radius: 4px; padding: 10px 15px; margin-bottom: 10px; display: flex; align-items: center; gap: 10px;">
+      <span style="color: #166534; font-size: 1.1em;">📑</span>
+      <span style="flex: 1; font-weight: 500; color: #166534;">Front Matter (Title page, Table of Contents, Preface, etc.)</span>
+      <span style="color: #666; font-size: 0.85em;">PDF page 1</span>
+    </div>
+
+    <div class="toolbar">
+      <button onclick="undo()" id="undo-btn" disabled class="secondary" style="padding: 5px 10px;">↶ Undo</button>
+      <button onclick="redo()" id="redo-btn" disabled class="secondary" style="padding: 5px 10px;">↷ Redo</button>
+      <div class="separator"></div>
+      <button onclick="sortChapters()" class="secondary" style="padding: 5px 10px;">Sort by Page</button>
+      <button onclick="validateAllChapters()" class="secondary" style="padding: 5px 10px;">Validate</button>
+      <span style="margin-left: auto; font-size: 0.8em; color: #666;">Drag to reorder</span>
+    </div>
+
+    <div id="chapter-list"></div>
+    <button onclick="addChapter()" style="margin-top: 10px; width: 100%; background: #e5e7eb; color: #333;">+ Add Chapter Manually</button>
+  </div>
+
+  <!-- Step 4: Generate -->
+  <div class="card hidden" id="step4">
+    <h2><span class="step-number">4</span> Generate PDF</h2>
+
+    <div style="margin-bottom: 15px;">
+      <label style="font-size: 0.9em;">Output filename:</label>
+      <input type="text" id="output-filename" placeholder="processed_document.pdf" style="margin-bottom: 0;">
+    </div>
+
+    <button onclick="processPdf()" class="success" id="process-btn" style="width: 100%; font-size: 1.1em; padding: 15px;">Download PDF with Bookmarks</button>
+    <div id="status" class="status-box hidden"></div>
+  </div>
+
+  <script>
+    // --- Configuration ---
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+
+    // --- State ---
+    let pdfDoc = null;
+    let pdfBytes = null;
+    let totalPages = 0;
+    let currentPreviewPage = 1;
+    let ocrImages = [];
+    let ocrWorker = null;
+    let history = [];
+    let historyIndex = -1;
+    let isUndoRedo = false;
+    let isBulkEdit = false;
+    let urlFetchController = null;
+
+    // --- DOM Elements ---
+    const chapterListEl = document.getElementById("chapter-list");
+    const pageOffsetInput = document.getElementById("page-offset");
+    const dropZone = document.getElementById("ocr-drop-zone");
+    const tocImageInput = document.getElementById("toc-image");
+    const tocStartPageInput = document.getElementById("toc-start-page");
+    const tocEndPageInput = document.getElementById("toc-end-page");
+    const rawTocTextarea = document.getElementById("toc-raw-text");
+
+    // --- Utilities ---
+    function $(id) { return document.getElementById(id); }
+
+    function normalizeNewlines(s) {
+      return (s || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+    }
+
+    function isRomanNumeralToken(token) {
+      return /^[ivxlcdm]+$/i.test(token) && isNaN(token);
+    }
+
+    function isStandalonePageToken(token) {
+      const t = (token || "").trim().replace(/\.$/, "");
+      if (!t) return false;
+      if (/^\d+$/.test(t)) return true;
+      if (isRomanNumeralToken(t)) return true;
+      return false;
+    }
+
+    function normalizePageToken(token) {
+      let t = (token || "").trim();
+      t = t.replace(/[.)\]]+$/g, "");       // strip trailing punctuation
+      t = t.replace(/^[[(]+/g, "");         // strip leading brackets
+      t = t.trim();
+      return t;
+    }
+
+    function safeParseInt(x) {
+      const n = parseInt(String(x).trim(), 10);
+      return Number.isFinite(n) ? n : NaN;
+    }
+
+    // --- Raw ToC helpers ---
+    function setRawToc(text) {
+      rawTocTextarea.value = normalizeNewlines(text || "");
+    }
+
+    function copyRawToc() {
+      const txt = rawTocTextarea.value || "";
+      navigator.clipboard.writeText(txt).catch(() => {
+        alert("Copy failed. Your browser may block clipboard access.");
+      });
+    }
+
+    function downloadRawToc() {
+      const txt = rawTocTextarea.value || "";
+      const blob = new Blob([txt], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "toc_raw.txt";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    // --- PDF Text Extraction (Improved) ---
+    async function extractTextLinesFromPage(pageNum) {
+      const page = await pdfDoc.getPage(pageNum);
+      const textContent = await page.getTextContent();
+
+      const items = (textContent.items || [])
+        .filter(it => it && typeof it.str === "string" && it.str.trim() !== "")
+        .map(it => {
+          const x = it.transform?.[4] ?? 0;
+          const y = it.transform?.[5] ?? 0;
+          const w = typeof it.width === "number" ? it.width : 0;
+          const h = typeof it.height === "number" ? it.height : 0;
+          return {
+            str: it.str,
+            x, y, w, h
+          };
+        });
+
+      // Sort top-to-bottom (y desc), then left-to-right (x asc)
+      items.sort((a, b) => {
+        const dy = b.y - a.y;
+        if (Math.abs(dy) > 0.5) return dy;
+        return a.x - b.x;
+      });
+
+      // Group into line buckets by y with adaptive tolerance
+      const lines = [];
+      const pushLine = (line) => {
+        const text = assembleLineText(line.items);
+        if (text.trim()) lines.push(text.trim());
+      };
+
+      let current = null;
+
+      for (const it of items) {
+        const tol = Math.max(2.5, (it.h || 0) * 0.6);
+        if (!current) {
+          current = { y: it.y, h: it.h || 0, items: [it] };
+          continue;
         }
-        
-        function setTocToCurrentPage() {
-            // If start is not set or current page is before start, set start
-            // Otherwise set end to current page (useful for multi-page ToCs)
-            const start = parseInt(tocStartPageInput.value) || 0;
-            if (start === 0 || currentPreviewPage < start) {
-                tocStartPageInput.value = currentPreviewPage;
-                tocEndPageInput.value = currentPreviewPage;
+
+        const yDiff = Math.abs(it.y - current.y);
+        const lineTol = Math.max(tol, Math.max(2.5, (current.h || 0) * 0.6));
+
+        if (yDiff <= lineTol) {
+          // same line; update running average y to stabilize
+          current.items.push(it);
+          current.y = (current.y * (current.items.length - 1) + it.y) / current.items.length;
+          current.h = Math.max(current.h || 0, it.h || 0);
+        } else {
+          // flush previous line
+          pushLine(current);
+          current = { y: it.y, h: it.h || 0, items: [it] };
+        }
+      }
+
+      if (current) pushLine(current);
+
+      return lines;
+    }
+
+    function assembleLineText(items) {
+      // Sort left-to-right
+      const sorted = [...items].sort((a, b) => a.x - b.x);
+
+      let out = "";
+      let prev = null;
+
+      for (const it of sorted) {
+        const chunk = String(it.str).replace(/\s+/g, " ").trim();
+        if (!chunk) continue;
+
+        if (!prev) {
+          out += chunk;
+          prev = it;
+          continue;
+        }
+
+        const prevEndX = (prev.x || 0) + (prev.w || 0);
+        const gap = (it.x || 0) - prevEndX;
+
+        // Estimate a typical character width for deciding whether a gap means a real space
+        const prevCharW = (prev.w && prev.str) ? (prev.w / Math.max(prev.str.length, 1)) : 0;
+        const curCharW = (it.w && it.str) ? (it.w / Math.max(it.str.length, 1)) : 0;
+        const charW = Math.max(1.5, prevCharW || 0, curCharW || 0);
+
+        // If there is a meaningful horizontal gap, add a space
+        if (gap > charW * 0.8) out += " ";
+
+        out += chunk;
+        prev = it;
+      }
+
+      return out;
+    }
+
+    async function extractTextFromRange(startPage, endPage, statusEl) {
+      let allLines = [];
+      for (let p = startPage; p <= endPage; p++) {
+        if (statusEl) statusEl.textContent = `Extracting page ${p} of ${endPage}...`;
+        const lines = await extractTextLinesFromPage(p);
+        allLines = allLines.concat(lines).concat([""]); // blank line between pages
+      }
+      return allLines.join("\n").trim();
+    }
+
+    // --- Step 3: Extract & Parse ---
+    async function extractAndParseToc() {
+      if (!pdfDoc) {
+        alert("Please load a PDF first");
+        return;
+      }
+
+      const startPage = safeParseInt(tocStartPageInput.value) || 1;
+      const endPage = safeParseInt(tocEndPageInput.value) || startPage;
+      const status = $("extract-status");
+      const btn = $("extract-btn");
+
+      if (startPage < 1 || endPage > totalPages || startPage > endPage) {
+        status.className = "status-box error";
+        status.textContent = `Invalid page range. PDF has ${totalPages} pages.`;
+        status.classList.remove("hidden");
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = "Extracting...";
+      status.className = "status-box processing";
+      status.textContent = "Extracting text from PDF...";
+      status.classList.remove("hidden");
+
+      try {
+        const raw = await extractTextFromRange(startPage, endPage, status);
+
+        setRawToc(raw);
+
+        if (raw.length < 20) {
+          status.className = "status-box warning";
+          status.textContent = "Very little text found. This PDF may be a scanned image. Try the OCR option below.";
+          return;
+        }
+
+        status.textContent = "Parsing chapters...";
+        const replaceExisting = $("replace-existing").checked;
+        const result = parseTocText(raw, { replaceExisting });
+
+        if (result.count > 0) {
+          status.className = "status-box success";
+          let msg = `Found ${result.count} entries.`;
+          if (result.skippedSubchapters > 0) msg += ` (Skipped ${result.skippedSubchapters} subchapters)`;
+          if (result.skippedNonMatches > 0) msg += ` (Ignored ${result.skippedNonMatches} non-entry lines)`;
+          status.textContent = msg;
+          validateAllChapters();
+        } else {
+          status.className = "status-box warning";
+          status.textContent = "Could not find any ToC entries. Open the raw extracted text to see what was extracted.";
+        }
+      } catch (err) {
+        console.error(err);
+        status.className = "status-box error";
+        status.textContent = "Error: " + err.message;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Extract & Parse ToC";
+      }
+    }
+
+    function setTocToCurrentPage() {
+      const start = safeParseInt(tocStartPageInput.value) || 0;
+      if (start === 0 || currentPreviewPage < start) {
+        tocStartPageInput.value = currentPreviewPage;
+        tocEndPageInput.value = currentPreviewPage;
+      } else {
+        tocEndPageInput.value = currentPreviewPage;
+      }
+      updatePageRangeHint();
+    }
+
+    function updatePageRangeHint() {
+      const start = safeParseInt(tocStartPageInput.value) || 1;
+      const end = safeParseInt(tocEndPageInput.value) || 1;
+      const hint = $("page-range-hint");
+      if (!hint) return;
+
+      if (start === end) {
+        hint.textContent = "(1 page)";
+        hint.style.color = "#666";
+      } else if (end > start) {
+        hint.textContent = `(${end - start + 1} pages)`;
+        hint.style.color = "#666";
+      } else {
+        hint.textContent = "(invalid range)";
+        hint.style.color = "#dc2626";
+      }
+    }
+
+    tocStartPageInput.addEventListener("input", updatePageRangeHint);
+    tocEndPageInput.addEventListener("input", updatePageRangeHint);
+
+    // --- History System ---
+    function saveState() {
+      if (isUndoRedo || isBulkEdit) return;
+
+      const chapters = [];
+      chapterListEl.querySelectorAll(".chapter-row").forEach(row => {
+        chapters.push({
+          title: row.querySelector(".chapter-title").value,
+          page: row.querySelector(".chapter-page").value
+        });
+      });
+
+      if (historyIndex < history.length - 1) {
+        history = history.slice(0, historyIndex + 1);
+      }
+
+      history.push(JSON.stringify(chapters));
+      if (history.length > 50) history.shift();
+      else historyIndex++;
+
+      updateHistoryButtons();
+    }
+
+    function restoreState(state) {
+      isUndoRedo = true;
+      chapterListEl.innerHTML = "";
+      JSON.parse(state).forEach(ch => addChapterWithData(ch.title, ch.page));
+      isUndoRedo = false;
+      validateAllChapters();
+    }
+
+    function undo() {
+      if (historyIndex > 0) {
+        historyIndex--;
+        restoreState(history[historyIndex]);
+        updateHistoryButtons();
+      }
+    }
+
+    function redo() {
+      if (historyIndex < history.length - 1) {
+        historyIndex++;
+        restoreState(history[historyIndex]);
+        updateHistoryButtons();
+      }
+    }
+
+    function updateHistoryButtons() {
+      $("undo-btn").disabled = historyIndex <= 0;
+      $("redo-btn").disabled = historyIndex >= history.length - 1;
+    }
+
+    document.addEventListener("keydown", (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      }
+      if ((e.ctrlKey || e.metaKey) && (e.key === "y" || (e.key === "z" && e.shiftKey))) {
+        e.preventDefault();
+        redo();
+      }
+    });
+
+    // --- File Upload & Preview ---
+    $("pdf-file").addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      try {
+        const bytes = await file.arrayBuffer();
+        await loadPdfFromBytes(bytes, file.name);
+      } catch (err) {
+        alert("Error loading PDF: " + err.message);
+      }
+    });
+
+    const CORS_PROXY = "https://toc-pdf-proxy.ccrawford.workers.dev";
+
+    async function loadFromUrl() {
+      const urlInput = $("pdf-url");
+      const errorEl = $("url-error");
+      const btn = $("load-url-btn");
+      const url = (urlInput.value || "").trim();
+
+      errorEl.classList.add("hidden");
+
+      if (!url) {
+        errorEl.textContent = "Please enter a URL";
+        errorEl.classList.remove("hidden");
+        return;
+      }
+
+      if (!url.includes("dropbox.com")) {
+        errorEl.textContent = "Currently only Dropbox URLs are supported. Please use a Dropbox share link.";
+        errorEl.classList.remove("hidden");
+        return;
+      }
+
+      if (urlFetchController) urlFetchController.abort();
+      urlFetchController = new AbortController();
+
+      btn.disabled = true;
+      btn.textContent = "Loading...";
+
+      try {
+        const proxyUrl = `${CORS_PROXY}/?url=${encodeURIComponent(url)}`;
+        const response = await fetch(proxyUrl, { signal: urlFetchController.signal });
+
+        if (!response.ok) {
+          let errorMsg = `HTTP ${response.status}`;
+          try {
+            const errorData = await response.json();
+            if (errorData.error) errorMsg = errorData.error;
+          } catch (e) {}
+          throw new Error(errorMsg);
+        }
+
+        const bytes = await response.arrayBuffer();
+
+        const urlPath = new URL(url).pathname;
+        const filename = decodeURIComponent(urlPath.split("/").pop()) || "document.pdf";
+
+        await loadPdfFromBytes(bytes, filename);
+        urlInput.value = "";
+      } catch (err) {
+        if (err.name === "AbortError") return;
+        console.error(err);
+        errorEl.textContent = "Error loading PDF: " + err.message;
+        errorEl.classList.remove("hidden");
+      } finally {
+        urlFetchController = null;
+        btn.disabled = false;
+        btn.textContent = "Load";
+      }
+    }
+
+    $("pdf-url").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        loadFromUrl();
+      }
+    });
+
+    async function loadPdfFromBytes(bytes, filename) {
+      pdfBytes = bytes;
+      pdfDoc = await pdfjsLib.getDocument({ data: pdfBytes.slice(0) }).promise;
+      totalPages = pdfDoc.numPages;
+
+      $("file-info").textContent = `${filename} (${totalPages} pages)`;
+      $("file-info").classList.remove("hidden");
+      $("url-error").classList.add("hidden");
+      pageOffsetInput.max = totalPages;
+
+      const baseName = filename.replace(/\.pdf$/i, "");
+      $("output-filename").value = `${baseName}_bookmarked.pdf`;
+
+      tocStartPageInput.max = totalPages;
+      tocEndPageInput.max = totalPages;
+      tocStartPageInput.value = 1;
+      tocEndPageInput.value = Math.min(3, totalPages);
+      updatePageRangeHint();
+
+      ["step2", "step3", "step4"].forEach(id => $(id).classList.remove("hidden"));
+      updateFrontMatterDisplay();
+
+      if (chapterListEl.children.length === 0) {
+        addChapter();
+        saveState();
+      }
+
+      renderPreview(1);
+      validateAllChapters();
+    }
+
+    async function renderPreview(pageNum) {
+      if (!pdfDoc) return;
+      currentPreviewPage = pageNum;
+      $("preview-page-num").textContent = `Page ${pageNum}`;
+
+      const page = await pdfDoc.getPage(pageNum);
+      const scale = parseFloat($("preview-scale").value) || 1.5;
+      const viewport = page.getViewport({ scale });
+
+      const canvas = $("preview-canvas");
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+
+      canvas.height = viewport.height;
+      canvas.width = viewport.width;
+
+      await page.render({ canvasContext: context, viewport }).promise;
+    }
+
+    function previewPage(delta) {
+      const newPage = currentPreviewPage + delta;
+      if (newPage >= 1 && newPage <= totalPages) renderPreview(newPage);
+    }
+
+    function openPreviewFullSize() {
+      const canvas = $("preview-canvas");
+      const dataUrl = canvas.toDataURL("image/png");
+      const newTab = window.open();
+      if (!newTab) return;
+      newTab.document.write(`
+        <html>
+        <head><title>Page ${currentPreviewPage} Preview</title></head>
+        <body style="margin: 0; display: flex; justify-content: center; background: #333;">
+          <img src="${dataUrl}" style="max-width: 100%; height: auto;">
+        </body>
+        </html>
+      `);
+      newTab.document.close();
+    }
+
+    function savePreviewImage() {
+      const canvas = $("preview-canvas");
+      const dataUrl = canvas.toDataURL("image/png");
+      const a = document.createElement("a");
+      a.href = dataUrl;
+      a.download = `page_${currentPreviewPage}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+
+    // --- OCR Logic ---
+    dropZone.addEventListener("click", () => tocImageInput.click());
+    dropZone.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      dropZone.classList.add("dragover");
+    });
+    dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragover"));
+    dropZone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      dropZone.classList.remove("dragover");
+      if (e.dataTransfer.files.length) handleOcrImages(e.dataTransfer.files);
+    });
+    tocImageInput.addEventListener("change", (e) => handleOcrImages(e.target.files));
+
+    document.addEventListener("paste", (e) => {
+      const activeEl = document.activeElement;
+      if (activeEl && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA")) return;
+
+      const step3 = $("step3");
+      if (step3.classList.contains("hidden")) return;
+
+      const items = e.clipboardData.items;
+      for (const item of items) {
+        if (item.type.startsWith("image/")) {
+          e.preventDefault();
+          handleOcrImages([item.getAsFile()]);
+          break;
+        }
+      }
+    });
+
+    function handleOcrImages(files) {
+      for (const file of files) {
+        if (!file.type.startsWith("image/")) continue;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          ocrImages.push(e.target.result);
+          updateOcrPreviews();
+        };
+        reader.readAsDataURL(file);
+      }
+    }
+
+    function updateOcrPreviews() {
+      const container = $("ocr-previews");
+      container.innerHTML = "";
+      ocrImages.forEach((src, idx) => {
+        const div = document.createElement("div");
+        div.className = "ocr-preview-item";
+
+        const img = document.createElement("img");
+        img.src = src;
+
+        const btn = document.createElement("button");
+        btn.textContent = "✕";
+        btn.onclick = () => removeImage(idx);
+
+        div.appendChild(img);
+        div.appendChild(btn);
+        container.appendChild(div);
+      });
+
+      const hasImages = ocrImages.length > 0;
+      $("ocr-preview-container").classList.toggle("hidden", !hasImages);
+      dropZone.classList.toggle("hidden", hasImages);
+    }
+
+    function removeImage(idx) {
+      ocrImages.splice(idx, 1);
+      updateOcrPreviews();
+    }
+
+    function clearImages() {
+      ocrImages = [];
+      updateOcrPreviews();
+    }
+
+    function preprocessImage(imageSource, mode = "light") {
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          const scale = 2;
+          canvas.width = img.width * scale;
+          canvas.height = img.height * scale;
+          const ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+          ctx.fillStyle = "#fff";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+          if (mode === "none") {
+            resolve(canvas.toDataURL("image/png"));
+            return;
+          }
+
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const data = imageData.data;
+
+          if (mode === "light") {
+            for (let i = 0; i < data.length; i += 4) {
+              const gray = 0.2126 * data[i] + 0.7152 * data[i+1] + 0.0722 * data[i+2];
+              data[i] = data[i+1] = data[i+2] = gray;
+            }
+          }
+
+          ctx.putImageData(imageData, 0, 0);
+          resolve(canvas.toDataURL("image/png"));
+        };
+        img.src = imageSource;
+      });
+    }
+
+    async function runOcrAndParse() {
+      if (!ocrImages.length) return;
+
+      const status = $("ocr-status");
+      const btn = $("ocr-btn");
+      const psmValue = parseInt($("ocr-psm").value, 10) || 6;
+      const langSetting = ($("ocr-lang").value || "spa,eng").split(",").map(s => s.trim()).filter(Boolean);
+
+      btn.disabled = true;
+      status.className = "status-box processing";
+      status.classList.remove("hidden");
+      status.textContent = "Initializing OCR engine...";
+
+      try {
+        if (!ocrWorker) {
+          // Use official supported form: multiple langs as array
+          ocrWorker = await Tesseract.createWorker(langSetting, 1, {
+            logger: (m) => {
+              if (m.status === "recognizing text") {
+                status.textContent = `OCR Progress: ${Math.round(m.progress * 100)}%`;
+              }
+            }
+          });
+        } else {
+          // If worker exists, reinitialize to chosen languages
+          await ocrWorker.reinitialize(langSetting, 1);
+        }
+
+        await ocrWorker.setParameters({
+          tessedit_pageseg_mode: psmValue,
+          preserve_interword_spaces: "1"
+        });
+
+        let fullText = "";
+
+        for (let i = 0; i < ocrImages.length; i++) {
+          status.textContent = `Processing image ${i+1}/${ocrImages.length}...`;
+          const processedImg = await preprocessImage(ocrImages[i], "light");
+
+          status.textContent = `Reading text from image ${i+1}...`;
+          const result = await ocrWorker.recognize(processedImg);
+          fullText += (result?.data?.text || "") + "\n";
+        }
+
+        const cleaned = normalizeOcrText(fullText);
+        setRawToc(cleaned);
+
+        status.textContent = "Parsing chapters...";
+        const replaceExisting = $("replace-existing").checked;
+        const result = parseTocText(cleaned, { replaceExisting });
+
+        clearImages();
+
+        if (result.count > 0) {
+          status.className = "status-box success";
+          let msg = `Found ${result.count} entries via OCR.`;
+          if (result.skippedSubchapters > 0) msg += ` (Skipped ${result.skippedSubchapters} subchapters)`;
+          if (result.skippedNonMatches > 0) msg += ` (Ignored ${result.skippedNonMatches} non-entry lines)`;
+          status.textContent = msg;
+          validateAllChapters();
+        } else {
+          status.className = "status-box warning";
+          status.textContent = "OCR completed but could not parse any entries. Try a different layout mode and check raw extracted text.";
+        }
+      } catch (err) {
+        console.error(err);
+        status.className = "status-box error";
+        status.textContent = "OCR Error: " + err.message;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    function normalizeOcrText(fullText) {
+      const text = normalizeNewlines(fullText || "");
+      const lines = text.split("\n").map(line => line.trim()).filter(Boolean);
+
+      // Remove dot/dash leaders and collapse weird repeated garbage chunks
+      const cleaned = lines.map(l => {
+        let s = l;
+
+        s = s.replace(/([._-]\s*){2,}/g, " ");
+        s = s.replace(/\b[oOeEiIcCnNrRsStTaA]{8,}\b/g, " ");
+        s = s.replace(/\s+/g, " ").trim();
+
+        // OCR often inserts spaces inside page numbers at the end
+        // If line ends with spaced digits like "1 4 5", compress to "145"
+        s = s.replace(/(\s)(\d)(\s+\d)+$/g, (m) => m.replace(/\s+/g, " ").trim());
+
+        return s;
+      });
+
+      return cleaned.join("\n");
+    }
+
+    // --- ToC Parsing ---
+    function parseTocText(text, options = {}) {
+      const filterSubchapters = $("filter-subchapters").checked;
+      const prefixHeaders = $("prefix-section-headers").checked;
+      const fixSpacedSectionNumbers = $("fix-spaced-section-numbers").checked;
+      const replaceExisting = !!options.replaceExisting;
+
+      if (replaceExisting) resetChapterList();
+
+      let lines = normalizeNewlines(text || "")
+        .split("\n")
+        .map(l => l.trim())
+        .filter(Boolean);
+
+      // Light cleanup: remove dot leaders, collapse multiple spaces
+      lines = lines.map(l => l.replace(/\.{2,}/g, " ").replace(/\s{2,}/g, " ").trim());
+
+      const format = detectTocFormat(lines);
+      const entries = (format === "page-first")
+        ? parsePageFirstFormat(lines)
+        : parsePageLastFormat(lines, { prefixHeaders, fixSpacedSectionNumbers });
+
+      let parsedCount = 0;
+      let skippedSubchapters = 0;
+
+      isBulkEdit = true;
+
+      for (const entry of entries.entries) {
+        if (filterSubchapters && looksLikeSubchapter(entry.title)) {
+          skippedSubchapters++;
+          continue;
+        }
+
+        if (entry.title && entry.page) {
+          addChapterWithData(entry.title, entry.page);
+          parsedCount++;
+        }
+      }
+
+      isBulkEdit = false;
+      saveState();
+
+      return {
+        count: parsedCount,
+        skippedSubchapters,
+        skippedNonMatches: entries.skippedNonMatches
+      };
+    }
+
+    function detectTocFormat(lines) {
+      // Unicode-aware: \p{L} matches any letter, needs 'u' flag
+      let pageFirstCount = 0;
+      let pageLastCount = 0;
+
+      const sample = lines.slice(0, 40);
+      for (const line of sample) {
+        if (/^\d+\s+\p{L}/u.test(line)) pageFirstCount++;
+        if (/\p{L}.*\s+\d+$/u.test(line)) pageLastCount++;
+      }
+
+      return pageFirstCount > pageLastCount ? "page-first" : "page-last";
+    }
+
+    function parsePageFirstFormat(lines) {
+      const entries = [];
+      let skippedNonMatches = 0;
+
+      const regex = /^(\d+|[ivxlcdm]+)\s+(.+)$/i;
+
+      for (const line of lines) {
+        const match = line.match(regex);
+        if (!match) {
+          skippedNonMatches++;
+          continue;
+        }
+
+        const pageStr = normalizePageToken(match[1]);
+        const title = cleanTitle(match[2]);
+
+        if (isRomanNumeralToken(pageStr)) {
+          // front matter
+          continue;
+        }
+
+        const page = safeParseInt(pageStr);
+        if (!title || !page) {
+          skippedNonMatches++;
+          continue;
+        }
+
+        entries.push({ title, page });
+      }
+
+      return { entries, skippedNonMatches };
+    }
+
+    function parsePageLastFormat(lines, opts) {
+      const entries = [];
+      let skippedNonMatches = 0;
+
+      let buffer = "";
+      let chapterPrefix = "";
+      let sectionPrefix = "";
+
+      // Chapter markers like: Capítulo 1 / Chapter 2 / etc.
+      const chapterMarkerPattern = /^(chapter|capítulo|capitulo|chapitre|kapitel|capitolo|parte|part|teil|section|sección|seccion)\s*(\d+)\.?$/i;
+
+      // Section headers to prefix next entry
+      const sectionHeaderPattern = /^(introducción|conclusión|apéndices|apendices|appendices|introduction|conclusion)$/i;
+
+      // Ignore lines like "Contenido"
+      const ignorePattern = /^(contenido|table of contents)$/i;
+
+      for (const line0 of lines) {
+        const line = line0.trim();
+        if (!line) continue;
+
+        if (ignorePattern.test(line)) {
+          buffer = "";
+          chapterPrefix = "";
+          sectionPrefix = "";
+          skippedNonMatches++;
+          continue;
+        }
+
+        // Section headers (optional prefix behavior)
+        if (opts.prefixHeaders && sectionHeaderPattern.test(line)) {
+          sectionPrefix = line; // keep original casing
+          buffer = "";
+          chapterPrefix = "";
+          skippedNonMatches++;
+          continue;
+        }
+
+        // Chapter markers
+        const chapterMatch = line.match(chapterMarkerPattern);
+        if (chapterMatch) {
+          chapterPrefix = line.replace(/\.?$/, "");
+          buffer = "";
+          skippedNonMatches++;
+          continue;
+        }
+
+        // Standalone page number line
+        if (isStandalonePageToken(line)) {
+          const pageStr = normalizePageToken(line);
+
+          // Skip Roman numerals (front matter) but reset buffer to avoid cross-contamination
+          if (isRomanNumeralToken(pageStr)) {
+            buffer = "";
+            chapterPrefix = "";
+            sectionPrefix = "";
+            skippedNonMatches++;
+            continue;
+          }
+
+          const page = safeParseInt(pageStr);
+          if (!page) {
+            skippedNonMatches++;
+            continue;
+          }
+
+          // Build full title from prefix + buffer
+          let fullTitle = buffer.trim();
+
+          if (chapterPrefix && fullTitle) fullTitle = `${chapterPrefix}: ${fullTitle}`;
+          else if (chapterPrefix && !fullTitle) fullTitle = chapterPrefix;
+
+          if (sectionPrefix && fullTitle) fullTitle = `${sectionPrefix}: ${fullTitle}`;
+          else if (sectionPrefix && !fullTitle) fullTitle = sectionPrefix;
+
+          fullTitle = cleanTitle(fullTitle, opts);
+
+          if (fullTitle) {
+            entries.push({ title: fullTitle, page });
+          } else {
+            skippedNonMatches++;
+          }
+
+          buffer = "";
+          chapterPrefix = "";
+          sectionPrefix = "";
+          continue;
+        }
+
+        // Inline "title ... 25" case (Arabic or Roman at end)
+        const inlineMatch = line.match(/^(.+?)\s+(\d+|[ivxlcdm]+)\.?$/i);
+        if (inlineMatch) {
+          const potentialTitle = inlineMatch[1].trim();
+          const potentialPageRaw = normalizePageToken(inlineMatch[2]);
+
+          if (isRomanNumeralToken(potentialPageRaw)) {
+            buffer = "";
+            chapterPrefix = "";
+            sectionPrefix = "";
+            skippedNonMatches++;
+            continue;
+          }
+
+          const page = safeParseInt(potentialPageRaw);
+          if (!page) {
+            // not a real page number; treat as title line
+          } else {
+            let combinedTitle = buffer ? (buffer + " " + potentialTitle) : potentialTitle;
+
+            let fullTitle = combinedTitle.trim();
+
+            if (chapterPrefix) fullTitle = `${chapterPrefix}: ${fullTitle}`;
+            if (sectionPrefix) fullTitle = `${sectionPrefix}: ${fullTitle}`;
+
+            fullTitle = cleanTitle(fullTitle, opts);
+
+            if (fullTitle) {
+              entries.push({ title: fullTitle, page });
             } else {
-                tocEndPageInput.value = currentPreviewPage;
+              skippedNonMatches++;
             }
-            updatePageRangeHint();
-        }
-        
-        function updatePageRangeHint() {
-            const start = parseInt(tocStartPageInput.value) || 1;
-            const end = parseInt(tocEndPageInput.value) || 1;
-            const hint = document.getElementById('page-range-hint');
-            if (!hint) return;
-            
-            if (start === end) {
-                hint.textContent = `(1 page)`;
-            } else if (end > start) {
-                hint.textContent = `(${end - start + 1} pages)`;
-            } else {
-                hint.textContent = `(invalid range)`;
-                hint.style.color = '#dc2626';
-                return;
-            }
-            hint.style.color = '#666';
-        }
-        
-        // Update hint when page inputs change
-        tocStartPageInput.addEventListener('input', updatePageRangeHint);
-        tocEndPageInput.addEventListener('input', updatePageRangeHint);
 
-        // --- History System ---
-        function saveState() {
-            if (isUndoRedo || isBulkEdit) return;
-            
-            const chapters = [];
-            chapterListEl.querySelectorAll('.chapter-row').forEach(row => {
-                chapters.push({
-                    title: row.querySelector('.chapter-title').value,
-                    page: row.querySelector('.chapter-page').value
-                });
-            });
-            
-            if (historyIndex < history.length - 1) {
-                history = history.slice(0, historyIndex + 1);
-            }
-            history.push(JSON.stringify(chapters));
-            if (history.length > 50) history.shift(); else historyIndex++;
-            updateHistoryButtons();
+            buffer = "";
+            chapterPrefix = "";
+            sectionPrefix = "";
+            continue;
+          }
         }
 
-        function restoreState(state) {
-            isUndoRedo = true;
-            chapterListEl.innerHTML = '';
-            JSON.parse(state).forEach(ch => addChapterWithData(ch.title, ch.page, false));
-            isUndoRedo = false;
-            validateAllChapters();
+        // Otherwise: part of a multi-line title
+        buffer = buffer ? (buffer + " " + line) : line;
+      }
+
+      // Any leftover buffer without page gets ignored
+      if (buffer.trim()) skippedNonMatches++;
+
+      return { entries, skippedNonMatches };
+    }
+
+    function cleanTitle(title, opts = {}) {
+      let t = String(title || "")
+        .replace(/[._\-]+$/, "")
+        .replace(/\s{2,}/g, " ")
+        .trim();
+
+      if (!t) return "";
+
+      // Optional fix: "1 5 Más" -> "1.5 Más" (helps OCR and some PDFs)
+      if (opts.fixSpacedSectionNumbers) {
+        // Only convert single-digit + single-digit followed by an uppercase letter word
+        // Example: "... 1 5 Más ..." -> "... 1.5 Más ..."
+        t = t.replace(/\b(\d)\s+(\d)\b(?=\s+\p{Lu})/gu, "$1.$2");
+      }
+
+      return t;
+    }
+
+    function looksLikeSubchapter(title) {
+      // 1.1 / 2.3.4 etc
+      if (/^\s*\d+\.\d+(?:\.\d+)*\s+/.test(title)) return true;
+      // A.1 / B.2.3 etc
+      if (/^\s*[A-Z]\.\d+(?:\.\d+)*\s+/i.test(title)) return true;
+      return false;
+    }
+
+    // --- Chapter List Management ---
+    function resetChapterList() {
+      isBulkEdit = true;
+      chapterListEl.innerHTML = "";
+      history = [];
+      historyIndex = -1;
+      isBulkEdit = false;
+      updateHistoryButtons();
+    }
+
+    function addChapterWithData(title, page) {
+      const row = document.createElement("div");
+      row.className = "chapter-row";
+
+      const handle = document.createElement("span");
+      handle.className = "drag-handle";
+      handle.textContent = "⋮⋮";
+      handle.draggable = true;
+
+      const titleInput = document.createElement("input");
+      titleInput.type = "text";
+      titleInput.className = "chapter-title";
+      titleInput.value = title || "";
+      titleInput.placeholder = "Title";
+
+      const pageInput = document.createElement("input");
+      pageInput.type = "number";
+      pageInput.className = "chapter-page";
+      pageInput.value = page || "";
+      pageInput.placeholder = "Pg";
+      pageInput.min = "1";
+
+      const deleteBtn = document.createElement("button");
+      deleteBtn.className = "danger";
+      deleteBtn.style.padding = "5px 10px";
+      deleteBtn.textContent = "✕";
+      deleteBtn.onclick = () => { row.remove(); saveState(); };
+
+      const validationMsg = document.createElement("div");
+      validationMsg.className = "validation-msg";
+
+      row.appendChild(handle);
+      row.appendChild(titleInput);
+      row.appendChild(pageInput);
+      row.appendChild(deleteBtn);
+      row.appendChild(validationMsg);
+
+      titleInput.addEventListener("change", () => !isUndoRedo && !isBulkEdit && saveState());
+      pageInput.addEventListener("change", () => {
+        validateChapter(row);
+        if (!isUndoRedo && !isBulkEdit) saveState();
+      });
+      pageInput.addEventListener("input", () => validateChapter(row));
+
+      handle.addEventListener("dragstart", (e) => {
+        row.classList.add("dragging");
+        e.dataTransfer.effectAllowed = "move";
+      });
+
+      handle.addEventListener("dragend", () => {
+        row.classList.remove("dragging");
+        saveState();
+      });
+
+      row.addEventListener("dragover", e => {
+        e.preventDefault();
+        const dragging = document.querySelector(".dragging");
+        if (dragging && dragging !== row) {
+          const box = row.getBoundingClientRect();
+          const offset = e.clientY - box.top - box.height / 2;
+          if (offset < 0) row.parentNode.insertBefore(dragging, row);
+          else row.parentNode.insertBefore(dragging, row.nextSibling);
+        }
+      });
+
+      chapterListEl.appendChild(row);
+
+      if (totalPages) validateChapter(row);
+      if (!isUndoRedo && !isBulkEdit) saveState();
+    }
+
+    function addChapter() {
+      addChapterWithData("", "");
+      const rows = chapterListEl.querySelectorAll(".chapter-row");
+      const lastRow = rows[rows.length - 1];
+      if (lastRow) lastRow.querySelector(".chapter-title").focus();
+    }
+
+    function sortChapters() {
+      const rows = Array.from(chapterListEl.children);
+      rows.sort((a, b) => getPageFromRow(a) - getPageFromRow(b));
+      chapterListEl.innerHTML = "";
+      rows.forEach(r => chapterListEl.appendChild(r));
+      saveState();
+    }
+
+    function getPageFromRow(row) {
+      const val = row.querySelector(".chapter-page").value.trim();
+      return safeParseInt(val) || 999999;
+    }
+
+    // --- Chapter Validation ---
+    function validateChapter(row) {
+      if (!totalPages) return true;
+
+      const pageInput = row.querySelector(".chapter-page");
+      const pageVal = pageInput.value.trim();
+      const msgEl = row.querySelector(".validation-msg");
+
+      if (!pageVal) {
+        row.classList.remove("invalid");
+        if (msgEl) msgEl.textContent = "";
+        return true;
+      }
+
+      const pageNum = safeParseInt(pageVal);
+      if (!pageNum || pageNum < 1) {
+        row.classList.add("invalid");
+        if (msgEl) msgEl.textContent = "Enter a valid page number";
+        return false;
+      }
+
+      const pageOffset = safeParseInt(pageOffsetInput.value) || 1;
+      const pdfIndex = (pageNum - 1) + (pageOffset - 1);
+
+      if (pdfIndex < 0 || pdfIndex >= totalPages) {
+        row.classList.add("invalid");
+        if (msgEl) msgEl.textContent = `Page ${pageVal} → PDF page ${pdfIndex + 1} (out of range 1-${totalPages})`;
+        return false;
+      }
+
+      row.classList.remove("invalid");
+      if (msgEl) msgEl.textContent = "";
+      return true;
+    }
+
+    function validateAllChapters() {
+      let invalidCount = 0;
+      chapterListEl.querySelectorAll(".chapter-row").forEach(row => {
+        if (!validateChapter(row)) invalidCount++;
+      });
+      return invalidCount;
+    }
+
+    pageOffsetInput.addEventListener("change", () => {
+      validateAllChapters();
+      updateFrontMatterDisplay();
+    });
+
+    function updateFrontMatterDisplay() {
+      const pageOffset = safeParseInt(pageOffsetInput.value) || 1;
+      const frontMatterRow = $("front-matter-row");
+      if (frontMatterRow) frontMatterRow.classList.toggle("hidden", pageOffset <= 1);
+    }
+
+    // --- PDF Generation ---
+    async function processPdf() {
+      if (!pdfBytes) return alert("No PDF loaded");
+
+      const rows = Array.from(chapterListEl.querySelectorAll(".chapter-row"));
+      let lastPage = -Infinity;
+      let isUnsorted = false;
+
+      for (const row of rows) {
+        const pageVal = row.querySelector(".chapter-page").value.trim();
+        if (!pageVal) continue;
+        const currentPage = safeParseInt(pageVal) || 0;
+        if (currentPage < lastPage) {
+          isUnsorted = true;
+          break;
+        }
+        lastPage = currentPage;
+      }
+
+      if (isUnsorted) {
+        const shouldSort = confirm("Chapters are not in page order. Sort them now before generating?\n\nClick OK to sort, or Cancel to proceed without sorting.");
+        if (shouldSort) sortChapters();
+      }
+
+      const btn = $("process-btn");
+      const status = $("status");
+      btn.disabled = true;
+      status.className = "status-box processing";
+      status.classList.remove("hidden");
+      status.textContent = "Generating PDF...";
+
+      try {
+        const { PDFDocument, PDFName, PDFNumber, PDFString } = PDFLib;
+        const doc = await PDFDocument.load(pdfBytes);
+        const context = doc.context;
+        const numPages = doc.getPageCount();
+
+        const pageOffset = safeParseInt(pageOffsetInput.value) || 1;
+
+        const outlineItems = [];
+        const skippedItems = [];
+
+        if (pageOffset > 1) {
+          outlineItems.push({
+            title: "Front Matter (Title page, Table of Contents, Preface, etc.)",
+            pageIndex: 0
+          });
         }
 
-        function undo() {
-            if (historyIndex > 0) {
-                historyIndex--;
-                restoreState(history[historyIndex]);
-                updateHistoryButtons();
-            }
-        }
+        chapterListEl.querySelectorAll(".chapter-row").forEach(row => {
+          const title = row.querySelector(".chapter-title").value.trim();
+          const pageVal = row.querySelector(".chapter-page").value.trim();
+          if (!title || !pageVal) return;
 
-        function redo() {
-            if (historyIndex < history.length - 1) {
-                historyIndex++;
-                restoreState(history[historyIndex]);
-                updateHistoryButtons();
-            }
-        }
+          const pageNum = safeParseInt(pageVal);
+          if (!pageNum || pageNum < 1) {
+            skippedItems.push({ title, pageVal, reason: "Invalid page number" });
+            return;
+          }
 
-        function updateHistoryButtons() {
-            document.getElementById('undo-btn').disabled = historyIndex <= 0;
-            document.getElementById('redo-btn').disabled = historyIndex >= history.length - 1;
-        }
-        
-        // Keyboard shortcuts for undo/redo
-        document.addEventListener('keydown', (e) => {
-            if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
-                e.preventDefault();
-                undo();
-            }
-            if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
-                e.preventDefault();
-                redo();
-            }
+          const pdfIndex = (pageNum - 1) + (pageOffset - 1);
+          if (pdfIndex < 0 || pdfIndex >= numPages) {
+            skippedItems.push({ title, pageVal, reason: `Maps to PDF page ${pdfIndex + 1} (out of range 1-${numPages})` });
+            return;
+          }
+
+          outlineItems.push({ title, pageIndex: pdfIndex });
         });
 
-        // --- File Upload & Preview ---
-        document.getElementById('pdf-file').addEventListener('change', async (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
+        if (outlineItems.length > 0) {
+          const refs = [];
 
-            try {
-                const bytes = await file.arrayBuffer();
-                await loadPdfFromBytes(bytes, file.name);
-            } catch (err) {
-                alert('Error loading PDF: ' + err.message);
-            }
-        });
-        
-        // Load PDF from Dropbox URL (via CORS proxy)
-        const CORS_PROXY = 'https://toc-pdf-proxy.ccrawford.workers.dev';
-        
-        async function loadFromUrl() {
-            const urlInput = document.getElementById('pdf-url');
-            const errorEl = document.getElementById('url-error');
-            const btn = document.getElementById('load-url-btn');
-            let url = urlInput.value.trim();
-            
-            errorEl.classList.add('hidden');
-            
-            if (!url) {
-                errorEl.textContent = 'Please enter a URL';
-                errorEl.classList.remove('hidden');
-                return;
-            }
-            
-            // Validate it's a Dropbox URL
-            if (!url.includes('dropbox.com')) {
-                errorEl.textContent = 'Currently only Dropbox URLs are supported. Please use a Dropbox share link.';
-                errorEl.classList.remove('hidden');
-                return;
-            }
-            
-            // Abort any previous fetch in progress
-            if (urlFetchController) {
-                urlFetchController.abort();
-            }
-            urlFetchController = new AbortController();
-            
-            btn.disabled = true;
-            btn.textContent = 'Loading...';
-            
-            try {
-                // Use the CORS proxy
-                const proxyUrl = `${CORS_PROXY}/?url=${encodeURIComponent(url)}`;
-                
-                const response = await fetch(proxyUrl, {
-                    signal: urlFetchController.signal
-                });
-                
-                if (!response.ok) {
-                    // Try to get error message from proxy
-                    let errorMsg = `HTTP ${response.status}`;
-                    try {
-                        const errorData = await response.json();
-                        if (errorData.error) errorMsg = errorData.error;
-                    } catch (e) {}
-                    throw new Error(errorMsg);
-                }
-                
-                const bytes = await response.arrayBuffer();
-                
-                // Extract filename from original URL
-                const urlPath = new URL(url).pathname;
-                const filename = decodeURIComponent(urlPath.split('/').pop()) || 'document.pdf';
-                
-                await loadPdfFromBytes(bytes, filename);
-                urlInput.value = ''; // Clear on success
-                
-            } catch (err) {
-                // Don't show error if it was an intentional abort
-                if (err.name === 'AbortError') {
-                    return;
-                }
-                
-                console.error(err);
-                errorEl.textContent = 'Error loading PDF: ' + err.message;
-                errorEl.classList.remove('hidden');
-            } finally {
-                urlFetchController = null;
-            }
-            
-            btn.disabled = false;
-            btn.textContent = 'Load';
-        }
-        
-        // Shared function to load PDF from bytes
-        async function loadPdfFromBytes(bytes, filename) {
-            pdfBytes = bytes;
-            pdfDoc = await pdfjsLib.getDocument({ data: pdfBytes.slice(0) }).promise;
-            totalPages = pdfDoc.numPages;
-
-            document.getElementById('file-info').textContent = `${filename} (${totalPages} pages)`;
-            document.getElementById('file-info').classList.remove('hidden');
-            document.getElementById('url-error').classList.add('hidden');
-            pageOffsetInput.max = totalPages;
-            
-            // Set default output filename
-            const baseName = filename.replace(/\.pdf$/i, '');
-            document.getElementById('output-filename').value = `${baseName}_bookmarked.pdf`;
-            
-            // Set ToC page range defaults
-            tocStartPageInput.max = totalPages;
-            tocEndPageInput.max = totalPages;
-            tocStartPageInput.value = 1;
-            tocEndPageInput.value = Math.min(3, totalPages); // Default to first 3 pages
-            updatePageRangeHint();
-
-            ['step2', 'step3', 'step4'].forEach(id => document.getElementById(id).classList.remove('hidden'));
-            updateFrontMatterDisplay();
-            
-            if (chapterListEl.children.length === 0) {
-                addChapter();
-                saveState();
-            }
-            renderPreview(1);
-            validateAllChapters(); // Validate any existing chapters with new PDF
-        }
-        
-        // Enter key in URL field triggers load
-        document.getElementById('pdf-url').addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                loadFromUrl();
-            }
-        });
-
-        async function renderPreview(pageNum) {
-            if (!pdfDoc) return;
-            currentPreviewPage = pageNum;
-            document.getElementById('preview-page-num').textContent = `Page ${pageNum}`;
-            
-            const page = await pdfDoc.getPage(pageNum);
-            const scale = parseFloat(document.getElementById('preview-scale').value) || 1.5;
-            const viewport = page.getViewport({ scale });
-            const canvas = document.getElementById('preview-canvas');
-            const context = canvas.getContext('2d', { willReadFrequently: true });
-            
-            canvas.height = viewport.height;
-            canvas.width = viewport.width;
-            
-            await page.render({ canvasContext: context, viewport }).promise;
-        }
-
-        function previewPage(delta) {
-            const newPage = currentPreviewPage + delta;
-            if (newPage >= 1 && newPage <= totalPages) renderPreview(newPage);
-        }
-        
-        // Open current preview as full-size image in new tab
-        function openPreviewFullSize() {
-            const canvas = document.getElementById('preview-canvas');
-            const dataUrl = canvas.toDataURL('image/png');
-            const newTab = window.open();
-            if (newTab) {
-                newTab.document.write(`
-                    <html>
-                    <head><title>Page ${currentPreviewPage} Preview</title></head>
-                    <body style="margin: 0; display: flex; justify-content: center; background: #333;">
-                        <img src="${dataUrl}" style="max-width: 100%; height: auto;">
-                    </body>
-                    </html>
-                `);
-                newTab.document.close();
-            }
-        }
-        
-        // Save current preview as PNG file
-        function savePreviewImage() {
-            const canvas = document.getElementById('preview-canvas');
-            const dataUrl = canvas.toDataURL('image/png');
-            
-            const a = document.createElement('a');
-            a.href = dataUrl;
-            a.download = `page_${currentPreviewPage}.png`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-        }
-
-        // --- OCR Logic (Aggressive) ---
-        dropZone.addEventListener('click', () => tocImageInput.click());
-        dropZone.addEventListener('dragover', (e) => { 
-            e.preventDefault(); 
-            dropZone.classList.add('dragover'); 
-        });
-        dropZone.addEventListener('dragleave', () => { 
-            dropZone.classList.remove('dragover'); 
-        });
-        dropZone.addEventListener('drop', (e) => {
-            e.preventDefault();
-            dropZone.classList.remove('dragover');
-            if (e.dataTransfer.files.length) handleOcrImages(e.dataTransfer.files);
-        });
-        tocImageInput.addEventListener('change', (e) => handleOcrImages(e.target.files));
-        
-        // Scoped paste handler - only trigger when not editing text
-        document.addEventListener('paste', (e) => {
-            // Don't intercept if user is typing in an input or textarea
-            const activeEl = document.activeElement;
-            if (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA') {
-                return; // Let normal paste behavior happen
-            }
-            
-            // Don't intercept if step3 isn't visible
-            const step3 = document.getElementById('step3');
-            if (step3.classList.contains('hidden')) {
-                return;
-            }
-            
-            const items = e.clipboardData.items;
-            for (const item of items) {
-                if (item.type.startsWith('image/')) {
-                    e.preventDefault();
-                    handleOcrImages([item.getAsFile()]);
-                    break;
-                }
-            }
-        });
-
-        function handleOcrImages(files) {
-            for (const file of files) {
-                if (!file.type.startsWith('image/')) continue;
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    ocrImages.push(e.target.result);
-                    updateOcrPreviews();
-                };
-                reader.readAsDataURL(file);
-            }
-        }
-
-        function updateOcrPreviews() {
-            const container = document.getElementById('ocr-previews');
-            container.innerHTML = '';
-            ocrImages.forEach((src, idx) => {
-                const div = document.createElement('div');
-                div.className = 'ocr-preview-item';
-                
-                const img = document.createElement('img');
-                img.src = src;
-                
-                const btn = document.createElement('button');
-                btn.textContent = '✕';
-                btn.onclick = () => removeImage(idx);
-                
-                div.appendChild(img);
-                div.appendChild(btn);
-                container.appendChild(div);
+          for (const item of outlineItems) {
+            const pageRef = doc.getPages()[item.pageIndex].ref;
+            const dict = context.obj({
+              Title: PDFString.of(item.title),
+              Dest: context.obj([pageRef, PDFName.of("XYZ"), null, null, null]),
+              Parent: null
             });
-            
-            const hasImages = ocrImages.length > 0;
-            document.getElementById('ocr-preview-container').classList.toggle('hidden', !hasImages);
-            dropZone.classList.toggle('hidden', hasImages);
+            refs.push(context.register(dict));
+          }
+
+          const outlineDict = context.obj({
+            Type: PDFName.of("Outlines"),
+            First: refs[0],
+            Last: refs[refs.length - 1],
+            Count: PDFNumber.of(refs.length)
+          });
+          const outlineRef = context.register(outlineDict);
+
+          for (let i = 0; i < refs.length; i++) {
+            const item = context.lookup(refs[i]);
+            item.set(PDFName.of("Parent"), outlineRef);
+            if (i > 0) item.set(PDFName.of("Prev"), refs[i - 1]);
+            if (i < refs.length - 1) item.set(PDFName.of("Next"), refs[i + 1]);
+          }
+
+          doc.catalog.set(PDFName.of("Outlines"), outlineRef);
+          doc.catalog.set(PDFName.of("PageMode"), PDFName.of("UseOutlines"));
         }
 
-        function removeImage(idx) {
-            ocrImages.splice(idx, 1);
-            updateOcrPreviews();
-        }
-        
-        function clearImages() {
-            ocrImages = [];
-            updateOcrPreviews();
-        }
-
-        // PREPROCESSING with different modes
-        function preprocessImage(imageSource, mode = 'light') {
-            return new Promise((resolve) => {
-                const img = new Image();
-                img.onload = () => {
-                    const canvas = document.createElement('canvas');
-                    const scale = 2;
-                    canvas.width = img.width * scale;
-                    canvas.height = img.height * scale;
-                    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-                    
-                    ctx.fillStyle = '#fff';
-                    ctx.fillRect(0, 0, canvas.width, canvas.height);
-                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                    
-                    if (mode === 'none') {
-                        // No processing, just scaled
-                        resolve(canvas.toDataURL('image/png'));
-                        return;
-                    }
-                    
-                    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                    const data = imageData.data;
-                    
-                    if (mode === 'light') {
-                        // Grayscale only - preserves more detail
-                        for (let i = 0; i < data.length; i += 4) {
-                            const gray = 0.2126 * data[i] + 0.7152 * data[i+1] + 0.0722 * data[i+2];
-                            data[i] = data[i+1] = data[i+2] = gray;
-                        }
-                    } else if (mode === 'aggressive') {
-                        // Binarization - high contrast black/white
-                        let totalBrightness = 0;
-                        for (let i = 0; i < data.length; i += 4) {
-                            totalBrightness += (data[i] + data[i+1] + data[i+2]) / 3;
-                        }
-                        const avg = totalBrightness / (data.length / 4);
-                        const threshold = avg * 0.85;
-                        
-                        for (let i = 0; i < data.length; i += 4) {
-                            const gray = 0.2126 * data[i] + 0.7152 * data[i+1] + 0.0722 * data[i+2];
-                            const val = gray < threshold ? 0 : 255;
-                            data[i] = data[i+1] = data[i+2] = val;
-                        }
-                    }
-                    
-                    ctx.putImageData(imageData, 0, 0);
-                    resolve(canvas.toDataURL('image/png'));
-                };
-                img.src = imageSource;
-            });
+        // Page Labels
+        const nums = [];
+        nums.push(PDFNumber.of(0));
+        if (pageOffset > 1) {
+          nums.push(context.obj({ S: PDFName.of("r"), St: PDFNumber.of(1) }));
+          nums.push(PDFNumber.of(pageOffset - 1));
+          nums.push(context.obj({ S: PDFName.of("D"), St: PDFNumber.of(1) }));
+        } else {
+          nums.push(context.obj({ S: PDFName.of("D"), St: PDFNumber.of(1) }));
         }
 
-        async function runOcrAndParse() {
-            if (!ocrImages.length) return;
-            const status = document.getElementById('ocr-status');
-            const btn = document.getElementById('ocr-btn');
-            const psmSelect = document.getElementById('ocr-psm');
-            
-            btn.disabled = true;
-            status.className = 'status-box processing';
-            status.classList.remove('hidden');
-            status.textContent = 'Initializing OCR engine...';
+        const labelsDict = context.obj({ Nums: nums });
+        doc.catalog.set(PDFName.of("PageLabels"), context.register(labelsDict));
 
-            try {
-                if (!ocrWorker) {
-                    ocrWorker = await Tesseract.createWorker('eng', 1, {
-                        logger: m => {
-                            if (m.status === 'recognizing text') {
-                                status.textContent = `OCR Progress: ${Math.round(m.progress * 100)}%`;
-                            }
-                        }
-                    });
-                }
-                
-                // Set PSM based on user selection
-                const psmValue = psmSelect ? parseInt(psmSelect.value, 10) : 6;
-                await ocrWorker.setParameters({
-                    tessedit_pageseg_mode: psmValue,
-                    preserve_interword_spaces: '1'
-                });
+        const data = await doc.save();
+        const blob = new Blob([data], { type: "application/pdf" });
+        const url = URL.createObjectURL(blob);
 
-                let fullText = '';
-                
-                for (let i = 0; i < ocrImages.length; i++) {
-                    status.textContent = `Processing image ${i+1}/${ocrImages.length}...`;
-                    const processedImg = await preprocessImage(ocrImages[i], 'light');
-                    
-                    status.textContent = `Reading text from image ${i+1}...`;
-                    const result = await ocrWorker.recognize(processedImg);
-                    fullText += result.data.text + '\n';
-                }
+        let outputFilename = $("output-filename").value.trim();
+        if (!outputFilename) outputFilename = "processed_document.pdf";
+        else if (!outputFilename.toLowerCase().endsWith(".pdf")) outputFilename += ".pdf";
 
-                // AGGRESSIVE CLEANUP for OCR text
-                const cleanedLines = fullText.split('\n').map(line => {
-                    let l = line.trim();
-                    if (!l) return '';
-                    
-                    // Remove actual dot/dash leaders
-                    l = l.replace(/([._-]\s*){2,}/g, ' ');
-                    
-                    // Remove garbled dot leaders - OCR often misreads dots as repeated letters
-                    l = l.replace(/\b[oOeEiIcCnNrRsStTaA]{8,}\b/g, ' ');
-                    
-                    // Catch mixed garbage patterns with repeated subsequences
-                    l = l.replace(/\b\S{15,}\b/g, (match) => {
-                        const charCounts = {};
-                        for (const c of match.toLowerCase()) {
-                            charCounts[c] = (charCounts[c] || 0) + 1;
-                        }
-                        const repeatedChars = Object.values(charCounts).filter(n => n >= 3).length;
-                        const uniqueChars = Object.keys(charCounts).length;
-                        
-                        if (repeatedChars >= 3 && uniqueChars <= match.length / 3) {
-                            return ' ';
-                        }
-                        return match;
-                    });
-                    
-                    // Clean up multiple spaces
-                    l = l.replace(/\s+/g, ' ').trim();
-                    
-                    // Find last space to isolate page number for leetspeak fix
-                    const lastSpace = l.lastIndexOf(' ');
-                    if (lastSpace === -1) return l;
-                    
-                    const title = l.substring(0, lastSpace).trim();
-                    let pagePart = l.substring(lastSpace + 1).trim();
-                    
-                    // Only apply leetspeak conversion if it looks like Arabic (has a digit)
-                    const looksRoman = /^[ivxlcdm]+$/i.test(pagePart);
-                    const hasDigit = /\d/.test(pagePart);
-                    
-                    if (!looksRoman && hasDigit) {
-                        pagePart = pagePart
-                            .replace(/O/gi, '0')
-                            .replace(/l/gi, '1')
-                            .replace(/I/g, '1')
-                            .replace(/S/gi, '5')
-                            .replace(/Z/gi, '2')
-                            .replace(/B/gi, '8')
-                            .replace(/g/g, '9')
-                            .replace(/q/g, '9')
-                            .replace(/[?]/g, '7')
-                            .replace(/[(){}\[\]]/g, '');
-                    }
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = outputFilename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
 
-                    return `${title} ${pagePart}`;
-                }).filter(Boolean).join('\n');
+        const chapterCount = outlineItems.length - (pageOffset > 1 ? 1 : 0);
 
-                // Parse directly to chapters
-                status.textContent = 'Parsing chapters...';
-                const result = parseTocText(cleanedLines);
-                
-                clearImages();
-                
-                if (result.count > 0) {
-                    status.className = 'status-box success';
-                    let msg = `Found ${result.count} chapters via OCR.`;
-                    if (result.skippedSubchapters > 0) {
-                        msg += ` (Skipped ${result.skippedSubchapters} subchapters)`;
-                    }
-                    status.textContent = msg;
-                    validateAllChapters();
-                } else {
-                    status.className = 'status-box warning';
-                    status.textContent = 'OCR completed but could not parse any chapters. Try a different layout mode.';
-                }
+        if (skippedItems.length > 0) {
+          status.className = "status-box warning";
+          status.textContent = "";
+          status.appendChild(document.createTextNode(
+            `PDF Generated with ${outlineItems.length} bookmarks (${chapterCount} chapters${pageOffset > 1 ? " + Front Matter" : ""}). `
+          ));
 
-            } catch (err) {
-                console.error(err);
-                status.className = 'status-box error';
-                status.textContent = 'OCR Error: ' + err.message;
-            }
-            btn.disabled = false;
+          const skippedDiv = document.createElement("div");
+          skippedDiv.className = "skipped-list";
+
+          const strongEl = document.createElement("strong");
+          strongEl.textContent = `${skippedItems.length} chapter(s) skipped:`;
+          skippedDiv.appendChild(strongEl);
+
+          const ul = document.createElement("ul");
+          for (const item of skippedItems) {
+            const li = document.createElement("li");
+            li.textContent = `"${item.title}" (page ${item.pageVal}) - ${item.reason}`;
+            ul.appendChild(li);
+          }
+          skippedDiv.appendChild(ul);
+          status.appendChild(skippedDiv);
+        } else {
+          status.className = "status-box success";
+          status.textContent = `PDF Generated with ${outlineItems.length} bookmarks (${chapterCount} chapters${pageOffset > 1 ? " + Front Matter" : ""})!`;
         }
+      } catch (err) {
+        console.error(err);
+        status.className = "status-box error";
+        status.textContent = "Error: " + err.message;
+      } finally {
+        btn.disabled = false;
+      }
+    }
 
-        // --- Multi-Format ToC Parsing ---
-        // Handles various ToC formats:
-        // Format A: "Chapter Title ... 42" (inline with dots/spaces)
-        // Format B: "Chapter Title" + newline + "42" (page on own line)
-        // Format C: "Author Name" + newline + "Chapter Title ... 42" (author on separate line)
-        // Format D: "42    Chapter Title" (page number FIRST)
-        // Format E: "1. Introduction  1" (numbered chapters)
-        
-        function parseTocText(text) {
-            const filterSubchapters = document.getElementById('filter-subchapters').checked;
-            
-            let lines = text.split('\n').map(l => {
-                let cleaned = l.trim();
-                // Remove dot leaders
-                cleaned = cleaned.replace(/\.{2,}/g, ' ');
-                // Collapse multiple spaces
-                cleaned = cleaned.replace(/\s{2,}/g, ' ');
-                return cleaned;
-            }).filter(Boolean);
-            
-            // Detect format by analyzing the lines
-            const format = detectTocFormat(lines);
-            
-            let entries = [];
-            
-            if (format === 'page-first') {
-                // Format D: Page number at start of line
-                entries = parsePageFirstFormat(lines);
-            } else {
-                // Default: Page number at end (handles A, B, C, E, F)
-                entries = parsePageLastFormat(lines);
-            }
-            
-            // Filter and add chapters
-            let parsedCount = 0;
-            let skippedSubchapters = 0;
-            
-            isBulkEdit = true;
-            
-            for (const entry of entries) {
-                if (filterSubchapters && looksLikeSubchapter(entry.title)) {
-                    skippedSubchapters++;
-                    continue;
-                }
-                
-                if (entry.title && entry.page) {
-                    addChapterWithData(entry.title, entry.page);
-                    parsedCount++;
-                }
-            }
-            
-            isBulkEdit = false;
-            saveState();
-            
-            return { count: parsedCount, skippedSubchapters };
-        }
-        
-        function detectTocFormat(lines) {
-            // Check if most lines start with a page number
-            let pageFirstCount = 0;
-            let pageLastCount = 0;
-            
-            for (const line of lines.slice(0, 20)) { // Sample first 20 lines
-                // Starts with number followed by space and text
-                if (/^\d+\s+[A-Za-z]/.test(line)) {
-                    pageFirstCount++;
-                }
-                // Ends with number
-                if (/[A-Za-z].*\s+\d+$/.test(line)) {
-                    pageLastCount++;
-                }
-            }
-            
-            return pageFirstCount > pageLastCount ? 'page-first' : 'page-last';
-        }
-        
-        function parsePageFirstFormat(lines) {
-            // Format: "42    Chapter Title"
-            // Skips Roman numeral pages (front matter)
-            const entries = [];
-            const regex = /^(\d+|[ivxlcdm]+)\s+(.+)$/i;
-            
-            for (const line of lines) {
-                const match = line.match(regex);
-                if (match) {
-                    const pageStr = match[1];
-                    const title = match[2].trim();
-                    
-                    // Skip Roman numerals (front matter)
-                    const isRoman = /^[ivxlcdm]+$/i.test(pageStr) && isNaN(pageStr);
-                    if (isRoman) continue;
-                    
-                    const page = parseInt(pageStr, 10);
-                    
-                    if (title && page) {
-                        entries.push({ title, page });
-                    }
-                }
-            }
-            
-            return entries;
-        }
-        
-        function parsePageLastFormat(lines) {
-            // Handles: inline page numbers, standalone page numbers, multi-line titles
-            // Skips Roman numeral pages (front matter) - these will be covered by auto Front Matter bookmark
-            // Detects chapter markers like "Capítulo 1", "Chapter 2" and combines with following title
-            const entries = [];
-            let buffer = '';
-            let chapterPrefix = ''; // Stores "Capítulo 1", "Chapter 2", etc.
-            
-            // Pattern to detect chapter markers in various languages
-            // Matches: Chapter 1, Capítulo 2, Chapitre 3, Kapitel 4, Capitolo 5, Part 1, Section 2, etc.
-            const chapterMarkerPattern = /^(chapter|capítulo|capitulo|chapitre|kapitel|capitolo|parte|part|teil|section|sección|seccion|κεφάλαιο|глава|章)\s*(\d+)\.?$/i;
-            
-            for (const line of lines) {
-                const trimmedLine = line.trim();
-                
-                // Check if this is a chapter marker like "Capítulo 1"
-                const chapterMatch = trimmedLine.match(chapterMarkerPattern);
-                if (chapterMatch) {
-                    // Store the chapter marker to combine with the next title
-                    chapterPrefix = trimmedLine.replace(/\.?$/, ''); // Remove trailing period if any
-                    continue;
-                }
-                
-                // Is this line ONLY a page number?
-                const standaloneMatch = trimmedLine.match(/^(\d+|[ivxlcdm]+)\.?$/i);
-                
-                if (standaloneMatch) {
-                    // Standalone page number - associate with buffered title
-                    if (buffer || chapterPrefix) {
-                        const pageStr = standaloneMatch[1];
-                        
-                        // Skip Roman numeral pages (front matter)
-                        if (/^[ivxlcdm]+$/i.test(pageStr) && isNaN(pageStr)) {
-                            buffer = '';
-                            chapterPrefix = '';
-                            continue;
-                        }
-                        
-                        const page = parseInt(pageStr, 10);
-                        
-                        // Combine chapter prefix with title
-                        let fullTitle = '';
-                        if (chapterPrefix && buffer) {
-                            fullTitle = chapterPrefix + ': ' + buffer;
-                        } else if (chapterPrefix) {
-                            fullTitle = chapterPrefix;
-                        } else {
-                            fullTitle = buffer;
-                        }
-                        
-                        entries.push({ 
-                            title: cleanTitle(fullTitle), 
-                            page 
-                        });
-                        buffer = '';
-                        chapterPrefix = '';
-                    }
-                    continue;
-                }
-                
-                // Try to extract inline page number
-                // Match: title followed by page number at end
-                const inlineMatch = trimmedLine.match(/^(.+?)\s+(\d+|[ivxlcdm]+)$/i);
-                
-                if (inlineMatch) {
-                    const potentialTitle = inlineMatch[1];
-                    const potentialPage = inlineMatch[2];
-                    
-                    // Skip Roman numeral pages (front matter)
-                    if (/^[ivxlcdm]+$/i.test(potentialPage) && isNaN(potentialPage)) {
-                        buffer = '';
-                        chapterPrefix = '';
-                        continue;
-                    }
-                    
-                    // Make sure it's actually a page number (not part of title like "Chapter 1")
-                    const titleWithoutTrailing = potentialTitle.replace(/[._\-\s]+$/, '').trim();
-                    
-                    // Check if the whole line is a chapter marker with page
-                    // e.g., "Capítulo 1 Introducción 5" shouldn't be split wrong
-                    if (titleWithoutTrailing.length > 0 && /[a-zA-ZáéíóúñüÁÉÍÓÚÑÜ]/.test(titleWithoutTrailing)) {
-                        // Combine chapter prefix + buffer + this title
-                        let fullTitle = '';
-                        const combinedTitle = buffer ? buffer + ' ' + titleWithoutTrailing : titleWithoutTrailing;
-                        
-                        if (chapterPrefix) {
-                            fullTitle = chapterPrefix + ': ' + combinedTitle;
-                        } else {
-                            fullTitle = combinedTitle;
-                        }
-                        
-                        const page = parseInt(potentialPage, 10);
-                        
-                        entries.push({ 
-                            title: cleanTitle(fullTitle), 
-                            page 
-                        });
-                        buffer = '';
-                        chapterPrefix = '';
-                        continue;
-                    }
-                }
-                
-                // No page number found - this is a title line, add to buffer
-                buffer = buffer ? buffer + ' ' + trimmedLine : trimmedLine;
-            }
-            
-            return entries;
-        }
-        
-        function cleanTitle(title) {
-            return title
-                .replace(/[._\-]+$/, '')  // Remove trailing dots/dashes
-                .trim();
-        }
-        
-        function looksLikeSubchapter(title) {
-            // 1.1 or 2.3.4 etc (requires digit.digit)
-            if (/^\s*\d+\.\d+(?:\.\d+)*\s+/.test(title)) return true;
-            // A.1 or B.2.3 etc (letter.digit)  
-            if (/^\s*[A-Z]\.\d+(?:\.\d+)*\s+/i.test(title)) return true;
-            return false;
-        }
-        
-        // Legacy function for manual text input (kept for compatibility but not used in current UI)
-        function parseToc() {
-            // This function is no longer used in the streamlined UI
-            // Kept for potential future manual text input feature
-            console.log('parseToc called but no longer used in current UI');
-        }
-
-        // --- Chapter Validation ---
-        function validateChapter(row) {
-            if (!totalPages) return true; // No PDF loaded yet
-            
-            const pageInput = row.querySelector('.chapter-page');
-            const pageVal = pageInput.value.trim();
-            const msgEl = row.querySelector('.validation-msg');
-            
-            if (!pageVal) {
-                row.classList.remove('invalid');
-                if (msgEl) msgEl.textContent = '';
-                return true;
-            }
-            
-            const pageNum = parseInt(pageVal, 10);
-            
-            if (!pageNum || isNaN(pageNum) || pageNum < 1) {
-                row.classList.add('invalid');
-                if (msgEl) msgEl.textContent = 'Enter a valid page number';
-                return false;
-            }
-            
-            const pageOffset = parseInt(pageOffsetInput.value) || 1;
-            const pdfIndex = (pageNum - 1) + (pageOffset - 1);
-            
-            if (pdfIndex < 0 || pdfIndex >= totalPages) {
-                row.classList.add('invalid');
-                if (msgEl) msgEl.textContent = `Page ${pageVal} → PDF page ${pdfIndex + 1} (out of range 1-${totalPages})`;
-                return false;
-            }
-            
-            row.classList.remove('invalid');
-            if (msgEl) msgEl.textContent = '';
-            return true;
-        }
-        
-        function validateAllChapters() {
-            let invalidCount = 0;
-            chapterListEl.querySelectorAll('.chapter-row').forEach(row => {
-                if (!validateChapter(row)) invalidCount++;
-            });
-            return invalidCount;
-        }
-        
-        // Re-validate when offset changes
-        pageOffsetInput.addEventListener('change', () => {
-            validateAllChapters();
-            updateFrontMatterDisplay();
-        });
-        
-        function updateFrontMatterDisplay() {
-            const pageOffset = parseInt(pageOffsetInput.value) || 1;
-            const frontMatterRow = document.getElementById('front-matter-row');
-            if (frontMatterRow) {
-                frontMatterRow.classList.toggle('hidden', pageOffset <= 1);
-            }
-        }
-
-        // --- Chapter Management ---
-        function addChapterWithData(title, page) {
-            const row = document.createElement('div');
-            row.className = 'chapter-row';
-            
-            // Drag handle
-            const handle = document.createElement('span');
-            handle.className = 'drag-handle';
-            handle.textContent = '⋮⋮';
-            handle.draggable = true;
-            
-            // Title input
-            const titleInput = document.createElement('input');
-            titleInput.type = 'text';
-            titleInput.className = 'chapter-title';
-            titleInput.value = title;
-            titleInput.placeholder = 'Title';
-            
-            // Page input
-            const pageInput = document.createElement('input');
-            pageInput.type = 'number';
-            pageInput.className = 'chapter-page';
-            pageInput.value = page;
-            pageInput.placeholder = 'Pg';
-            pageInput.min = '1';
-            
-            // Delete button
-            const deleteBtn = document.createElement('button');
-            deleteBtn.className = 'danger';
-            deleteBtn.style.padding = '5px 10px';
-            deleteBtn.textContent = '✕';
-            deleteBtn.onclick = () => { row.remove(); saveState(); };
-            
-            // Validation message
-            const validationMsg = document.createElement('div');
-            validationMsg.className = 'validation-msg';
-            
-            row.appendChild(handle);
-            row.appendChild(titleInput);
-            row.appendChild(pageInput);
-            row.appendChild(deleteBtn);
-            row.appendChild(validationMsg);
-            
-            // Event listeners
-            titleInput.addEventListener('change', () => !isUndoRedo && !isBulkEdit && saveState());
-            pageInput.addEventListener('change', () => {
-                validateChapter(row);
-                if (!isUndoRedo && !isBulkEdit) saveState();
-            });
-            pageInput.addEventListener('input', () => validateChapter(row));
-            
-            // Drag and Drop
-            handle.addEventListener('dragstart', (e) => {
-                row.classList.add('dragging');
-                e.dataTransfer.effectAllowed = 'move';
-            });
-            handle.addEventListener('dragend', () => {
-                row.classList.remove('dragging');
-                saveState();
-            });
-            
-            row.addEventListener('dragover', e => {
-                e.preventDefault();
-                const dragging = document.querySelector('.dragging');
-                if (dragging && dragging !== row) {
-                    const box = row.getBoundingClientRect();
-                    const offset = e.clientY - box.top - box.height / 2;
-                    if (offset < 0) row.parentNode.insertBefore(dragging, row);
-                    else row.parentNode.insertBefore(dragging, row.nextSibling);
-                }
-            });
-
-            chapterListEl.appendChild(row);
-            
-            // Validate immediately if PDF is loaded
-            if (totalPages) {
-                validateChapter(row);
-            }
-            
-            if (!isUndoRedo && !isBulkEdit) saveState();
-        }
-
-        function addChapter() {
-            addChapterWithData('', '', false);
-            // Focus the new title input
-            const rows = chapterListEl.querySelectorAll('.chapter-row');
-            const lastRow = rows[rows.length - 1];
-            if (lastRow) {
-                lastRow.querySelector('.chapter-title').focus();
-            }
-        }
-
-        function clearToc() {
-            if (confirm('Clear all?')) {
-                chapterListEl.innerHTML = '';
-                saveState();
-            }
-        }
-
-        function sortChapters() {
-            const rows = Array.from(chapterListEl.children);
-            rows.sort((a, b) => {
-                const pA = getPageFromRow(a);
-                const pB = getPageFromRow(b);
-                return pA - pB;
-            });
-            chapterListEl.innerHTML = '';
-            rows.forEach(r => chapterListEl.appendChild(r));
-            saveState();
-        }
-
-        function getPageFromRow(row) {
-            const val = row.querySelector('.chapter-page').value.trim();
-            return parseInt(val) || 99999;
-        }
-
-        // --- PDF Generation ---
-        async function processPdf() {
-            if (!pdfBytes) return alert('No PDF loaded');
-            
-            // Check if chapters are sorted by page number
-            const rows = Array.from(chapterListEl.querySelectorAll('.chapter-row'));
-            let lastPage = -Infinity;
-            let isUnsorted = false;
-            
-            for (const row of rows) {
-                const pageVal = row.querySelector('.chapter-page').value.trim();
-                if (!pageVal) continue;
-                const currentPage = parseInt(pageVal) || 0;
-                if (currentPage < lastPage) {
-                    isUnsorted = true;
-                    break;
-                }
-                lastPage = currentPage;
-            }
-            
-            if (isUnsorted) {
-                const shouldSort = confirm('Chapters are not in page order. Sort them now before generating?\n\nClick OK to sort, or Cancel to proceed without sorting.');
-                if (shouldSort) {
-                    sortChapters();
-                }
-            }
-            
-            const btn = document.getElementById('process-btn');
-            const status = document.getElementById('status');
-            btn.disabled = true;
-            status.className = 'status-box processing';
-            status.classList.remove('hidden');
-            status.textContent = 'Generating PDF...';
-
-            try {
-                const { PDFDocument, PDFName, PDFNumber, PDFString } = PDFLib;
-                const doc = await PDFDocument.load(pdfBytes);
-                const context = doc.context;
-                const numPages = doc.getPageCount();
-                
-                const pageOffset = parseInt(pageOffsetInput.value) || 1;
-
-                // 1. Create Bookmarks
-                const outlineItems = [];
-                const skippedItems = [];
-                
-                // Auto-add Front Matter bookmark if there's content before page 1
-                if (pageOffset > 1) {
-                    outlineItems.push({ 
-                        title: 'Front Matter (Title page, Table of Contents, Preface, etc.)', 
-                        pageIndex: 0 
-                    });
-                }
-                
-                const chapterRows = chapterListEl.querySelectorAll('.chapter-row');
-                
-                chapterRows.forEach(row => {
-                    const title = row.querySelector('.chapter-title').value.trim();
-                    const pageVal = row.querySelector('.chapter-page').value.trim();
-                    if (!title || !pageVal) return;
-
-                    const pageNum = parseInt(pageVal);
-                    if (isNaN(pageNum) || pageNum < 1) {
-                        skippedItems.push({ title, pageVal, reason: 'Invalid page number' });
-                        return;
-                    }
-                    
-                    // Convert book page to PDF page index
-                    const pdfIndex = (pageNum - 1) + (pageOffset - 1);
-
-                    if (pdfIndex < 0 || pdfIndex >= numPages) {
-                        skippedItems.push({ title, pageVal, reason: `Maps to PDF page ${pdfIndex + 1} (out of range 1-${numPages})` });
-                        return;
-                    }
-                    
-                    outlineItems.push({ title, pageIndex: pdfIndex });
-                });
-
-                // Apply Outlines (Flat Structure)
-                if (outlineItems.length > 0) {
-                    const refs = [];
-                    
-                    for (const item of outlineItems) {
-                        const pageRef = doc.getPages()[item.pageIndex].ref;
-                        const dict = context.obj({
-                            Title: PDFString.of(item.title),
-                            Dest: context.obj([pageRef, PDFName.of('XYZ'), null, null, null]),
-                            Parent: null
-                        });
-                        refs.push(context.register(dict));
-                    }
-
-                    const outlineDict = context.obj({
-                        Type: PDFName.of('Outlines'),
-                        First: refs[0],
-                        Last: refs[refs.length - 1],
-                        Count: PDFNumber.of(refs.length)
-                    });
-                    const outlineRef = context.register(outlineDict);
-
-                    for (let i = 0; i < refs.length; i++) {
-                        const item = context.lookup(refs[i]);
-                        item.set(PDFName.of('Parent'), outlineRef);
-                        if (i > 0) item.set(PDFName.of('Prev'), refs[i-1]);
-                        if (i < refs.length - 1) item.set(PDFName.of('Next'), refs[i+1]);
-                    }
-
-                    doc.catalog.set(PDFName.of('Outlines'), outlineRef);
-                    doc.catalog.set(PDFName.of('PageMode'), PDFName.of('UseOutlines'));
-                }
-
-                // 2. Set Page Labels
-                const nums = [];
-                
-                // Pages before main content (front matter)
-                nums.push(PDFNumber.of(0));
-                if (pageOffset > 1) {
-                    // Front matter uses lowercase Roman numerals
-                    nums.push(context.obj({ S: PDFName.of('r'), St: PDFNumber.of(1) }));
-                    
-                    // Main content starts at pageOffset-1, uses Arabic starting at 1
-                    nums.push(PDFNumber.of(pageOffset - 1));
-                    nums.push(context.obj({ S: PDFName.of('D'), St: PDFNumber.of(1) }));
-                } else {
-                    // No front matter - all pages are Arabic starting at 1
-                    nums.push(context.obj({ S: PDFName.of('D'), St: PDFNumber.of(1) }));
-                }
-
-                const labelsDict = context.obj({ Nums: nums });
-                doc.catalog.set(PDFName.of('PageLabels'), context.register(labelsDict));
-
-                // Save
-                const data = await doc.save();
-                const blob = new Blob([data], { type: 'application/pdf' });
-                const url = URL.createObjectURL(blob);
-                
-                // Get custom filename
-                let outputFilename = document.getElementById('output-filename').value.trim();
-                if (!outputFilename) {
-                    outputFilename = 'processed_document.pdf';
-                } else if (!outputFilename.toLowerCase().endsWith('.pdf')) {
-                    outputFilename += '.pdf';
-                }
-                
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = outputFilename;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-                
-                // Show results
-                const chapterCount = outlineItems.length - (pageOffset > 1 ? 1 : 0); // Don't count Front Matter
-                if (skippedItems.length > 0) {
-                    status.className = 'status-box warning';
-                    
-                    status.textContent = '';
-                    
-                    const mainText = document.createTextNode(`PDF Generated with ${outlineItems.length} bookmarks (${chapterCount} chapters${pageOffset > 1 ? ' + Front Matter' : ''}). `);
-                    status.appendChild(mainText);
-                    
-                    const skippedDiv = document.createElement('div');
-                    skippedDiv.className = 'skipped-list';
-                    
-                    const strongEl = document.createElement('strong');
-                    strongEl.textContent = `${skippedItems.length} chapter(s) skipped:`;
-                    skippedDiv.appendChild(strongEl);
-                    
-                    const ul = document.createElement('ul');
-                    for (const item of skippedItems) {
-                        const li = document.createElement('li');
-                        li.textContent = `"${item.title}" (page ${item.pageVal}) - ${item.reason}`;
-                        ul.appendChild(li);
-                    }
-                    skippedDiv.appendChild(ul);
-                    status.appendChild(skippedDiv);
-                } else {
-                    status.className = 'status-box success';
-                    status.textContent = `PDF Generated with ${outlineItems.length} bookmarks (${chapterCount} chapters${pageOffset > 1 ? ' + Front Matter' : ''})!`;
-                }
-
-            } catch (err) {
-                console.error(err);
-                status.className = 'status-box error';
-                status.textContent = 'Error: ' + err.message;
-            }
-            btn.disabled = false;
-        }
-
-        // --- Helpers ---
-        // Kept for potential future use in detecting Roman numerals
-        function romanToArabic(s) {
-            if (!s) return 0;
-            const map = {i:1, v:5, x:10, l:50, c:100, d:500, m:1000};
-            s = s.toLowerCase();
-            let res = 0;
-            for (let i = 0; i < s.length; i++) {
-                const v1 = map[s[i]];
-                const v2 = map[s[i+1]];
-                if (!v1) continue;
-                if (v2 && v2 > v1) res -= v1; else res += v1;
-            }
-            return res;
-        }
-    </script>
+    // Init hint
+    updatePageRangeHint();
+  </script>
 </body>
 </html>

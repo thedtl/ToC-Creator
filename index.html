@@ -991,7 +991,7 @@
         let tocStart = null;
         let tocEnd = null;
 
-        // --- 1. Page Offset Detection (Sequence Method) ---
+        // --- 1. Page Offset Detection (Generalized Sequence Method) ---
         const getPageNumCandidates = async (pageNum) => {
           const page = await pdfDoc.getPage(pageNum);
           const textContent = await page.getTextContent();
@@ -1015,19 +1015,22 @@
 
         for (let i = 1; i < maxScan; i++) {
           if (detectedOffset) break;
-          const candidates = await getPageNumCandidates(i);
-          const ones = candidates.filter(c => c.val === 1);
 
-          if (ones.length > 0) {
-            const nextCandidates = await getPageNumCandidates(i + 1);
-            for (const one of ones) {
-              const match = nextCandidates.find(c => 
-                c.val === 2 && Math.abs(c.y - one.y) < 50
-              );
-              if (match) {
-                detectedOffset = i;
-                break;
-              }
+          const cur = await getPageNumCandidates(i);
+          const next = await getPageNumCandidates(i + 1);
+
+          // Look for ANY N -> N+1 sequence in header/footer
+          for (const a of cur) {
+            const b = next.find(c =>
+              c.val === a.val + 1 &&
+              Math.abs(c.y - a.y) < 50 // keep "same line" test
+            );
+
+            if (b) {
+              // If PDF page i has printed N, book page 1 is i - (N - 1)
+              detectedOffset = i - (a.val - 1);
+              if (detectedOffset < 1) detectedOffset = 1;
+              break;
             }
           }
         }
@@ -1035,8 +1038,13 @@
         if (!detectedOffset) {
           const pageLabels = await pdfDoc.getPageLabels(); 
           if (pageLabels && pageLabels.length > 0) {
-            const index = pageLabels.findIndex(l => l === "1");
-            if (index !== -1) detectedOffset = index + 1;
+            // Find first numeric label
+            const index = pageLabels.findIndex(l => /^\d+$/.test(l));
+            if (index !== -1) {
+              const n = parseInt(pageLabels[index], 10);
+              detectedOffset = (index + 1) - (n - 1);
+              if (detectedOffset < 1) detectedOffset = 1;
+            }
           }
         }
 

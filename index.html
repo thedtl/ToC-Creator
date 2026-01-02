@@ -317,16 +317,15 @@
         <label style="font-size: 0.9em; margin-bottom: 5px;">From Dropbox URL:</label>
         <div style="display: flex; gap: 8px;">
           <input type="text" id="pdf-url" placeholder="https://www.dropbox.com/s/..." style="flex: 1; margin-bottom: 0;">
-          <button onclick="loadFromUrl()" id="load-url-btn" class="secondary">Load</button>
+          <button id="load-url-btn" class="secondary">Load</button>
         </div>
         <div style="font-size: 11px; color: #888; margin-top: 4px;">Paste a Dropbox share link</div>
       </div>
     </div>
 
-    <!-- Updated File Info Area with Auto-Detect Button -->
     <div id="file-info-container" class="hidden" style="margin-top: 15px; padding: 10px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
       <div id="file-info" style="font-weight: 500;"></div>
-      <button onclick="autoDetectStructure()" class="secondary" style="padding: 5px 10px; font-size: 0.85em; display: flex; align-items: center; gap: 5px;">
+      <button id="auto-detect-btn" class="secondary" style="padding: 5px 10px; font-size: 0.85em; display: flex; align-items: center; gap: 5px;">
         ✨ Re-run Auto-Detect
       </button>
     </div>
@@ -352,22 +351,22 @@
       <div style="flex: 1; min-width: 250px;">
         <div class="flex-row" style="justify-content: space-between; margin-bottom: 5px; flex-wrap: wrap; gap: 5px;">
           <div class="flex-row">
-            <button onclick="previewPage(-1)" class="secondary" style="padding: 5px 10px;">◀</button>
+            <button id="prev-page-btn" class="secondary" style="padding: 5px 10px;">◀</button>
             <span id="preview-page-num" style="font-weight: bold; min-width: 60px; text-align: center;">Page 1</span>
-            <button onclick="previewPage(1)" class="secondary" style="padding: 5px 10px;">▶</button>
+            <button id="next-page-btn" class="secondary" style="padding: 5px 10px;">▶</button>
           </div>
           <div class="flex-row">
-            <select id="preview-scale" onchange="renderPreview(currentPreviewPage)" style="width: auto; margin: 0; padding: 5px;" title="Preview resolution">
+            <select id="preview-scale" style="width: auto; margin: 0; padding: 5px;" title="Preview resolution">
               <option value="1">1x</option>
               <option value="1.5">1.5x</option>
               <option value="2" selected>2x</option>
               <option value="3">3x HD</option>
               <option value="4">4x Ultra</option>
             </select>
-            <button onclick="savePreviewImage()" class="secondary" style="padding: 5px 10px;" title="Save current page as PNG">📷 Save</button>
+            <button id="save-preview-btn" class="secondary" style="padding: 5px 10px;" title="Save current page as PNG">📷 Save</button>
           </div>
         </div>
-        <canvas id="preview-canvas" style="cursor: pointer;" onclick="openPreviewFullSize()" title="Click to open full-size in new tab"></canvas>
+        <canvas id="preview-canvas" style="cursor: pointer;" title="Click to open full-size in new tab"></canvas>
         <div style="font-size: 11px; color: #888; margin-top: 4px; text-align: center;">Click image to open full-size</div>
       </div>
     </div>
@@ -396,8 +395,8 @@
       </div>
 
       <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-        <button onclick="setTocToCurrentPage()" class="secondary" style="padding: 8px 12px; font-size: 0.85em;">Set to current page</button>
-        <button onclick="extractAndParseToc()" class="success" id="extract-btn" style="padding: 8px 16px;">Extract & Parse ToC</button>
+        <button id="set-toc-current-btn" class="secondary" style="padding: 8px 12px; font-size: 0.85em;">Set to current page</button>
+        <button id="extract-btn" class="success" style="padding: 8px 16px;">Extract & Parse ToC</button>
         <span id="page-range-hint" style="font-size: 0.85em; color: #666;"></span>
       </div>
 
@@ -405,6 +404,10 @@
         <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85em; color: #666;">
           <input type="checkbox" id="filter-subchapters" checked style="width: auto; margin: 0;">
           Skip subchapters (1.1, 2.3, etc.)
+        </label>
+        <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85em; color: #666;">
+          <input type="checkbox" id="roman-is-frontmatter" checked style="width: auto; margin: 0;">
+          Treat Roman numerals (i, ii, iv) as Front Matter
         </label>
       </div>
 
@@ -469,7 +472,7 @@
           <div id="ocr-previews" class="ocr-preview-grid"></div>
 
           <div class="button-row" style="margin-top: 10px;">
-            <button onclick="runOcrAndParse()" class="success" id="ocr-btn">🔍 Run OCR & Parse</button>
+            <button id="ocr-btn" class="success">🔍 Run OCR & Parse</button>
             <button onclick="clearImages()" class="secondary">Clear</button>
           </div>
           <div id="ocr-status" class="status-box hidden"></div>
@@ -480,13 +483,13 @@
     <!-- Chapter List -->
     <div id="front-matter-row" class="hidden" style="background: #f0fdf4; border: 1px solid #86efac; border-radius: 4px; padding: 10px 15px; margin-bottom: 10px; display: flex; align-items: center; gap: 10px;">
       <span style="color: #166534; font-size: 1.1em;">📑</span>
-      <span style="flex: 1; font-weight: 500; color: #166534;">Front Matter (Title page, Table of Contents, Preface, etc.)</span>
-      <span style="color: #666; font-size: 0.85em;">PDF page 1</span>
+      <span id="front-matter-text" style="flex: 1; font-weight: 500; color: #166534;">Front Matter</span>
+      <span id="front-matter-pages" style="color: #666; font-size: 0.85em;"></span>
     </div>
 
     <div class="toolbar">
-      <button onclick="undo()" id="undo-btn" disabled class="secondary" style="padding: 5px 10px;">↶ Undo</button>
-      <button onclick="redo()" id="redo-btn" disabled class="secondary" style="padding: 5px 10px;">↷ Redo</button>
+      <button id="undo-btn" disabled class="secondary" style="padding: 5px 10px;">↶ Undo</button>
+      <button id="redo-btn" disabled class="secondary" style="padding: 5px 10px;">↷ Redo</button>
       <div class="separator"></div>
       <button onclick="sortChapters()" class="secondary" style="padding: 5px 10px;">Sort by Page</button>
       <button onclick="validateAllChapters()" class="secondary" style="padding: 5px 10px;">Validate</button>
@@ -506,7 +509,7 @@
       <input type="text" id="output-filename" placeholder="processed_document.pdf" style="margin-bottom: 0;">
     </div>
 
-    <button onclick="processPdf()" class="success" id="process-btn" style="width: 100%; font-size: 1.1em; padding: 15px;">Download PDF with Bookmarks</button>
+    <button id="process-btn" class="success" style="width: 100%; font-size: 1.1em; padding: 15px;">Download PDF with Bookmarks</button>
     <div id="status" class="status-box hidden"></div>
   </div>
 
@@ -514,7 +517,7 @@
     // --- Configuration ---
     pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
-    // --- Parsing behavior (simplified: always ON, no checkboxes) ---
+    // --- Parsing behavior ---
     const PARSE_BEHAVIOR = {
       replaceExistingList: true,
       prefixSectionHeaders: true,
@@ -584,7 +587,6 @@
 
     function fixSpacedSectionNumbersInTitle(title) {
       // Example: "1 5 Más..." -> "1.5 Más..."
-      // Only triggers when the spaced numbers are followed by a word.
       return title.replace(
         /(^|\s)(\d{1,2})\s+(\d{1,2})(?=\s+[A-Za-zÁÉÍÓÚÜÑáéíóúüñ])/g,
         '$1$2.$3'
@@ -616,7 +618,7 @@
       URL.revokeObjectURL(url);
     }
 
-    // --- PDF Text Extraction (Improved) ---
+    // --- PDF Text Extraction ---
     async function extractTextLinesFromPage(pageNum) {
       const page = await pdfDoc.getPage(pageNum);
       const textContent = await page.getTextContent();
@@ -661,12 +663,10 @@
         const lineTol = Math.max(tol, Math.max(2.5, (current.h || 0) * 0.6));
 
         if (yDiff <= lineTol) {
-          // same line; update running average y to stabilize
           current.items.push(it);
           current.y = (current.y * (current.items.length - 1) + it.y) / current.items.length;
           current.h = Math.max(current.h || 0, it.h || 0);
         } else {
-          // flush previous line
           pushLine(current);
           current = { y: it.y, h: it.h || 0, items: [it] };
         }
@@ -678,9 +678,7 @@
     }
 
     function assembleLineText(items) {
-      // Sort left-to-right
       const sorted = [...items].sort((a, b) => a.x - b.x);
-
       let out = "";
       let prev = null;
 
@@ -696,19 +694,14 @@
 
         const prevEndX = (prev.x || 0) + (prev.w || 0);
         const gap = (it.x || 0) - prevEndX;
-
-        // Estimate a typical character width for deciding whether a gap means a real space
         const prevCharW = (prev.w && prev.str) ? (prev.w / Math.max(prev.str.length, 1)) : 0;
         const curCharW = (it.w && it.str) ? (it.w / Math.max(it.str.length, 1)) : 0;
         const charW = Math.max(1.5, prevCharW || 0, curCharW || 0);
 
-        // If there is a meaningful horizontal gap, add a space
         if (gap > charW * 0.8) out += " ";
-
         out += chunk;
         prev = it;
       }
-
       return out;
     }
 
@@ -717,7 +710,7 @@
       for (let p = startPage; p <= endPage; p++) {
         if (statusEl) statusEl.textContent = `Extracting page ${p} of ${endPage}...`;
         const lines = await extractTextLinesFromPage(p);
-        allLines = allLines.concat(lines).concat([""]); // blank line between pages
+        allLines = allLines.concat(lines).concat([""]);
       }
       return allLines.join("\n").trim();
     }
@@ -749,7 +742,6 @@
 
       try {
         const raw = await extractTextFromRange(startPage, endPage, status);
-
         setRawToc(raw);
 
         if (raw.length < 20) {
@@ -881,7 +873,6 @@
     $("pdf-file").addEventListener("change", async (e) => {
       const file = e.target.files[0];
       if (!file) return;
-
       try {
         const bytes = await file.arrayBuffer();
         await loadPdfFromBytes(bytes, file.name);
@@ -932,7 +923,6 @@
         }
 
         const bytes = await response.arrayBuffer();
-
         const urlPath = new URL(url).pathname;
         const filename = decodeURIComponent(urlPath.split("/").pop()) || "document.pdf";
 
@@ -986,15 +976,13 @@
 
       renderPreview(1);
       validateAllChapters();
-
-      // Trigger Auto-Detection
       await autoDetectStructure();
     }
 
-    // --- Auto-Detection Logic ---
+    // --- Auto-Detection Logic (Fixed) ---
     async function autoDetectStructure() {
       const status = $("file-info");
-      const originalStatus = status.textContent.split(" | ")[0]; // Keep filename
+      const originalStatus = status.textContent.split(" | ")[0];
       status.textContent = originalStatus + " | 🔍 Auto-detecting...";
       
       try {
@@ -1016,22 +1004,19 @@
         let tocPatternActive = false;
 
         for (let i = 1; i <= maxScan; i++) {
-          const page = await pdfDoc.getPage(i);
-          const textContent = await page.getTextContent();
-          const items = textContent.items;
-          
-          const viewport = page.getViewport({ scale: 1 });
-          const height = viewport.height;
-
-          const lines = assembleLineText(items).split("\n");
-
-          // A. Detect Offset (if not found via metadata)
+          // A. Page 1 Detection (Needs Coordinates)
           if (!detectedOffset) {
+            const page = await pdfDoc.getPage(i);
+            const viewport = page.getViewport({ scale: 1 });
+            const height = viewport.height;
+            const textContent = await page.getTextContent();
+            
             const footerThreshold = height * 0.15;
             const headerThreshold = height * 0.90;
 
-            const potentialPageNum = items.find(item => {
-              const y = item.transform[5];
+            const potentialPageNum = textContent.items.find(item => {
+              // PDF.js transform: [scaleX, skewY, skewX, scaleY, translateX, translateY]
+              const y = item.transform[5]; 
               const isFooter = y < footerThreshold;
               const isHeader = y > headerThreshold;
               return (isFooter || isHeader) && item.str.trim() === "1";
@@ -1040,7 +1025,10 @@
             if (potentialPageNum) detectedOffset = i;
           }
 
-          // B. Detect ToC
+          // B. ToC Detection (Needs Clean Lines)
+          // Use the robust line extractor instead of raw items
+          const lines = await extractTextLinesFromPage(i);
+          
           const tocHeaderRegex = /^\s*(table of contents|contents|índice|indice|contenido|sommaire|inhalt)\s*$/i;
           const hasHeader = lines.some(line => tocHeaderRegex.test(line.trim()));
           const listLines = lines.filter(line => /\.*\s*\d+$/.test(line.trim()));
@@ -1157,10 +1145,8 @@
     document.addEventListener("paste", (e) => {
       const activeEl = document.activeElement;
       if (activeEl && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA")) return;
-
       const step3 = $("step3");
       if (step3.classList.contains("hidden")) return;
-
       const items = e.clipboardData.items;
       for (const item of items) {
         if (item.type.startsWith("image/")) {
@@ -1189,19 +1175,15 @@
       ocrImages.forEach((src, idx) => {
         const div = document.createElement("div");
         div.className = "ocr-preview-item";
-
         const img = document.createElement("img");
         img.src = src;
-
         const btn = document.createElement("button");
         btn.textContent = "✕";
         btn.onclick = () => removeImage(idx);
-
         div.appendChild(img);
         div.appendChild(btn);
         container.appendChild(div);
       });
-
       const hasImages = ocrImages.length > 0;
       $("ocr-preview-container").classList.toggle("hidden", !hasImages);
       dropZone.classList.toggle("hidden", hasImages);
@@ -1226,26 +1208,21 @@
           canvas.width = img.width * scale;
           canvas.height = img.height * scale;
           const ctx = canvas.getContext("2d", { willReadFrequently: true });
-
           ctx.fillStyle = "#fff";
           ctx.fillRect(0, 0, canvas.width, canvas.height);
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
           if (mode === "none") {
             resolve(canvas.toDataURL("image/png"));
             return;
           }
-
           const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
           const data = imageData.data;
-
           if (mode === "light") {
             for (let i = 0; i < data.length; i += 4) {
               const gray = 0.2126 * data[i] + 0.7152 * data[i+1] + 0.0722 * data[i+2];
               data[i] = data[i+1] = data[i+2] = gray;
             }
           }
-
           ctx.putImageData(imageData, 0, 0);
           resolve(canvas.toDataURL("image/png"));
         };
@@ -1268,7 +1245,6 @@
 
       try {
         if (!ocrWorker) {
-          // Use official supported form: multiple langs as array
           ocrWorker = await Tesseract.createWorker(langSetting, 1, {
             logger: (m) => {
               if (m.status === "recognizing text") {
@@ -1277,7 +1253,6 @@
             }
           });
         } else {
-          // If worker exists, reinitialize to chosen languages
           await ocrWorker.reinitialize(langSetting, 1);
         }
 
@@ -1287,11 +1262,9 @@
         });
 
         let fullText = "";
-
         for (let i = 0; i < ocrImages.length; i++) {
           status.textContent = `Processing image ${i+1}/${ocrImages.length}...`;
           const processedImg = await preprocessImage(ocrImages[i], "light");
-
           status.textContent = `Reading text from image ${i+1}...`;
           const result = await ocrWorker.recognize(processedImg);
           fullText += (result?.data?.text || "") + "\n";
@@ -1325,22 +1298,25 @@
       }
     }
 
+    // Clean up worker on unload
+    window.addEventListener('unload', async () => {
+      if (ocrWorker) await ocrWorker.terminate();
+    });
+
     function normalizeOcrText(fullText) {
       const text = normalizeNewlines(fullText || "");
       const lines = text.split("\n").map(line => line.trim()).filter(Boolean);
 
-      // Remove dot/dash leaders and collapse weird repeated garbage chunks
       const cleaned = lines.map(l => {
         let s = l;
-
         s = s.replace(/([._-]\s*){2,}/g, " ");
         s = s.replace(/\b[oOeEiIcCnNrRsStTaA]{8,}\b/g, " ");
         s = s.replace(/\s+/g, " ").trim();
-
-        // OCR often inserts spaces inside page numbers at the end
-        // If line ends with spaced digits like "1 4 5", compress to "145"
-        s = s.replace(/(\s)(\d)(\s+\d)+$/g, (m) => m.replace(/\s+/g, " ").trim());
-
+        
+        // Fix: Remove spaces entirely between digits at the end of the line
+        // "Chapter 1 4 5" -> "Chapter 145"
+        s = s.replace(/(\d)(?:\s+\d)+$/g, (m) => m.replace(/\s+/g, ""));
+        
         return s;
       });
 
@@ -1350,6 +1326,7 @@
     // --- ToC Parsing ---
     function parseTocText(text) {
       const filterSubchapters = $("filter-subchapters").checked;
+      const romanIsFrontMatter = $("roman-is-frontmatter").checked;
 
       if (PARSE_BEHAVIOR.replaceExistingList) {
         resetChapterListAndHistory();
@@ -1360,22 +1337,18 @@
         .map(l => l.trim())
         .filter(Boolean);
 
-      // Light cleanup: remove dot leaders, collapse multiple spaces
       lines = lines.map(l => l.replace(/\.{2,}/g, " ").replace(/\s{2,}/g, " ").trim());
 
       const format = detectTocFormat(lines);
-      
       let extractedEntries = [];
       let skippedNonMatches = 0;
 
       if (format === "page-first") {
-        const res = parsePageFirstFormat(lines);
+        const res = parsePageFirstFormat(lines, romanIsFrontMatter);
         extractedEntries = res.entries;
         skippedNonMatches = res.skippedNonMatches;
       } else {
-        // Use the new hard-coded logic
-        extractedEntries = parsePageLastFormat(lines);
-        // Estimate skipped lines for the status box
+        extractedEntries = parsePageLastFormat(lines, romanIsFrontMatter);
         skippedNonMatches = Math.max(0, lines.length - extractedEntries.length);
       }
 
@@ -1389,7 +1362,6 @@
           skippedSubchapters++;
           continue;
         }
-
         if (entry.title && entry.page) {
           addChapterWithData(entry.title, entry.page);
           parsedCount++;
@@ -1407,23 +1379,19 @@
     }
 
     function detectTocFormat(lines) {
-      // Unicode-aware: \p{L} matches any letter, needs 'u' flag
       let pageFirstCount = 0;
       let pageLastCount = 0;
-
       const sample = lines.slice(0, 40);
       for (const line of sample) {
         if (/^\d+\s+\p{L}/u.test(line)) pageFirstCount++;
         if (/\p{L}.*\s+\d+$/u.test(line)) pageLastCount++;
       }
-
       return pageFirstCount > pageLastCount ? "page-first" : "page-last";
     }
 
-    function parsePageFirstFormat(lines) {
+    function parsePageFirstFormat(lines, romanIsFrontMatter) {
       const entries = [];
       let skippedNonMatches = 0;
-
       const regex = /^(\d+|[ivxlcdm]+)\s+(.+)$/i;
 
       for (const line of lines) {
@@ -1436,8 +1404,7 @@
         const pageStr = normalizePageToken(match[1]);
         const title = cleanTitle(match[2]);
 
-        if (isRomanNumeralToken(pageStr)) {
-          // front matter
+        if (romanIsFrontMatter && isRomanNumeralToken(pageStr)) {
           continue;
         }
 
@@ -1446,129 +1413,88 @@
           skippedNonMatches++;
           continue;
         }
-
         entries.push({ title, page });
       }
-
       return { entries, skippedNonMatches };
     }
 
-    function parsePageLastFormat(lines) {
+    function parsePageLastFormat(lines, romanIsFrontMatter) {
       const entries = [];
       let buffer = '';
-      let chapterPrefix = '';   // "Capítulo 1"
-      let sectionPrefix = '';   // "Introducción", "Conclusión", "Apéndices"
+      let chapterPrefix = '';
+      let sectionPrefix = '';
 
       const chapterMarkerPattern = /^(chapter|capítulo|capitulo|chapitre|kapitel|capitolo|parte|part|teil|section|sección|seccion)\s*(\d+)\.?$/i;
-
-      // Section headers you want to prefix onto the next real ToC entry:
       const sectionHeaderPattern = /^(introducción|introduction|conclusión|conclusion|apéndices|appendices|prefacio|preface)$/i;
 
       for (const line of lines) {
         const trimmedLine = line.trim();
 
-        // 1) If line is a standalone section header, store it and move on
         if (PARSE_BEHAVIOR.prefixSectionHeaders && sectionHeaderPattern.test(trimmedLine)) {
           sectionPrefix = trimmedLine.replace(/\.?$/, '');
           continue;
         }
 
-        // 2) Chapter marker like "Capítulo 1"
         const chapterMatch = trimmedLine.match(chapterMarkerPattern);
         if (chapterMatch) {
           chapterPrefix = trimmedLine.replace(/\.?$/, '');
           continue;
         }
 
-        // 3) Standalone page number line
         const standaloneMatch = trimmedLine.match(/^(\d+|[ivxlcdm]+)\.?$/i);
         if (standaloneMatch) {
           if (buffer || chapterPrefix || sectionPrefix) {
             const pageStr = standaloneMatch[1];
-
-            // Skip Roman numerals (front matter)
-            if (/^[ivxlcdm]+$/i.test(pageStr) && isNaN(pageStr)) {
-              buffer = '';
-              chapterPrefix = '';
-              sectionPrefix = '';
+            if (romanIsFrontMatter && /^[ivxlcdm]+$/i.test(pageStr) && isNaN(pageStr)) {
+              buffer = ''; chapterPrefix = ''; sectionPrefix = '';
               continue;
             }
-
             const page = parseInt(pageStr, 10);
-
-            // Build final title with prefixes
             let fullTitle = buffer || '';
             if (chapterPrefix) fullTitle = chapterPrefix + (fullTitle ? ': ' + fullTitle : '');
             if (sectionPrefix) fullTitle = sectionPrefix + (fullTitle ? ': ' + fullTitle : '');
-
             entries.push({ title: cleanTitle(fullTitle), page });
-
-            buffer = '';
-            chapterPrefix = '';
-            sectionPrefix = '';
+            buffer = ''; chapterPrefix = ''; sectionPrefix = '';
           }
           continue;
         }
 
-        // 4) Inline page number at end: "Title .... 42"
         const inlineMatch = trimmedLine.match(/^(.+?)\s+(\d+|[ivxlcdm]+)$/i);
         if (inlineMatch) {
           const potentialTitle = inlineMatch[1];
           const potentialPage = inlineMatch[2];
-
-          // Skip Roman numerals (front matter)
-          if (/^[ivxlcdm]+$/i.test(potentialPage) && isNaN(potentialPage)) {
-            buffer = '';
-            chapterPrefix = '';
-            sectionPrefix = '';
+          if (romanIsFrontMatter && /^[ivxlcdm]+$/i.test(potentialPage) && isNaN(potentialPage)) {
+            buffer = ''; chapterPrefix = ''; sectionPrefix = '';
             continue;
           }
-
           const titleWithoutTrailing = potentialTitle.replace(/[._\-\s]+$/, '').trim();
-
           if (titleWithoutTrailing.length > 0 && /[a-zA-ZáéíóúñüÁÉÍÓÚÑÜ]/.test(titleWithoutTrailing)) {
             const combinedTitle = buffer ? buffer + ' ' + titleWithoutTrailing : titleWithoutTrailing;
-
             let fullTitle = combinedTitle;
             if (chapterPrefix) fullTitle = chapterPrefix + ': ' + fullTitle;
             if (sectionPrefix) fullTitle = sectionPrefix + ': ' + fullTitle;
-
             const page = parseInt(potentialPage, 10);
             entries.push({ title: cleanTitle(fullTitle), page });
-
-            buffer = '';
-            chapterPrefix = '';
-            sectionPrefix = '';
+            buffer = ''; chapterPrefix = ''; sectionPrefix = '';
             continue;
           }
         }
-
-        // 5) Otherwise: accumulate title lines
         buffer = buffer ? buffer + ' ' + trimmedLine : trimmedLine;
       }
-
       return entries;
     }
 
     function cleanTitle(title) {
-      let t = String(title || "")
-        .replace(/[._\-]+$/, "")
-        .replace(/\s{2,}/g, " ")
-        .trim();
-
+      let t = String(title || "").replace(/[._\-]+$/, "").replace(/\s{2,}/g, " ").trim();
       if (!t) return "";
-
       if (PARSE_BEHAVIOR.fixSpacedSectionNumbers) {
         t = fixSpacedSectionNumbersInTitle(t);
       }
-
       return t;
     }
 
     function looksLikeSubchapter(title) {
-      // 1.1 / 2.3.4 etc
       if (/^\s*\d+\.\d+(?:\.\d+)*\s+/.test(title)) return true;
-      // A.1 / B.2.3 etc
       if (/^\s*[A-Z]\.\d+(?:\.\d+)*\s+/i.test(title)) return true;
       return false;
     }
@@ -1586,31 +1512,26 @@
     function addChapterWithData(title, page) {
       const row = document.createElement("div");
       row.className = "chapter-row";
-
       const handle = document.createElement("span");
       handle.className = "drag-handle";
       handle.textContent = "⋮⋮";
       handle.draggable = true;
-
       const titleInput = document.createElement("input");
       titleInput.type = "text";
       titleInput.className = "chapter-title";
       titleInput.value = title || "";
       titleInput.placeholder = "Title";
-
       const pageInput = document.createElement("input");
       pageInput.type = "number";
       pageInput.className = "chapter-page";
       pageInput.value = page || "";
       pageInput.placeholder = "Pg";
       pageInput.min = "1";
-
       const deleteBtn = document.createElement("button");
       deleteBtn.className = "danger";
       deleteBtn.style.padding = "5px 10px";
       deleteBtn.textContent = "✕";
       deleteBtn.onclick = () => { row.remove(); saveState(); };
-
       const validationMsg = document.createElement("div");
       validationMsg.className = "validation-msg";
 
@@ -1631,12 +1552,10 @@
         row.classList.add("dragging");
         e.dataTransfer.effectAllowed = "move";
       });
-
       handle.addEventListener("dragend", () => {
         row.classList.remove("dragging");
         saveState();
       });
-
       row.addEventListener("dragover", e => {
         e.preventDefault();
         const dragging = document.querySelector(".dragging");
@@ -1649,7 +1568,6 @@
       });
 
       chapterListEl.appendChild(row);
-
       if (totalPages) validateChapter(row);
       if (!isUndoRedo && !isBulkEdit) saveState();
     }
@@ -1674,36 +1592,29 @@
       return safeParseInt(val) || 999999;
     }
 
-    // --- Chapter Validation ---
     function validateChapter(row) {
       if (!totalPages) return true;
-
       const pageInput = row.querySelector(".chapter-page");
       const pageVal = pageInput.value.trim();
       const msgEl = row.querySelector(".validation-msg");
-
       if (!pageVal) {
         row.classList.remove("invalid");
         if (msgEl) msgEl.textContent = "";
         return true;
       }
-
       const pageNum = safeParseInt(pageVal);
       if (!pageNum || pageNum < 1) {
         row.classList.add("invalid");
         if (msgEl) msgEl.textContent = "Enter a valid page number";
         return false;
       }
-
       const pageOffset = safeParseInt(pageOffsetInput.value) || 1;
       const pdfIndex = (pageNum - 1) + (pageOffset - 1);
-
       if (pdfIndex < 0 || pdfIndex >= totalPages) {
         row.classList.add("invalid");
         if (msgEl) msgEl.textContent = `Page ${pageVal} → PDF page ${pdfIndex + 1} (out of range 1-${totalPages})`;
         return false;
       }
-
       row.classList.remove("invalid");
       if (msgEl) msgEl.textContent = "";
       return true;
@@ -1725,7 +1636,15 @@
     function updateFrontMatterDisplay() {
       const pageOffset = safeParseInt(pageOffsetInput.value) || 1;
       const frontMatterRow = $("front-matter-row");
-      if (frontMatterRow) frontMatterRow.classList.toggle("hidden", pageOffset <= 1);
+      const frontMatterPages = $("front-matter-pages");
+      
+      if (pageOffset <= 1) {
+        frontMatterRow.classList.add("hidden");
+      } else {
+        frontMatterRow.classList.remove("hidden");
+        const endPage = pageOffset - 1;
+        frontMatterPages.textContent = endPage === 1 ? "PDF page 1" : `PDF pages 1-${endPage}`;
+      }
     }
 
     // --- PDF Generation ---
@@ -1764,15 +1683,13 @@
         const doc = await PDFDocument.load(pdfBytes);
         const context = doc.context;
         const numPages = doc.getPageCount();
-
         const pageOffset = safeParseInt(pageOffsetInput.value) || 1;
-
         const outlineItems = [];
         const skippedItems = [];
 
         if (pageOffset > 1) {
           outlineItems.push({
-            title: "Front Matter (Title page, Table of Contents, Preface, etc.)",
+            title: "Front Matter",
             pageIndex: 0
           });
         }
@@ -1781,25 +1698,21 @@
           const title = row.querySelector(".chapter-title").value.trim();
           const pageVal = row.querySelector(".chapter-page").value.trim();
           if (!title || !pageVal) return;
-
           const pageNum = safeParseInt(pageVal);
           if (!pageNum || pageNum < 1) {
             skippedItems.push({ title, pageVal, reason: "Invalid page number" });
             return;
           }
-
           const pdfIndex = (pageNum - 1) + (pageOffset - 1);
           if (pdfIndex < 0 || pdfIndex >= numPages) {
             skippedItems.push({ title, pageVal, reason: `Maps to PDF page ${pdfIndex + 1} (out of range 1-${numPages})` });
             return;
           }
-
           outlineItems.push({ title, pageIndex: pdfIndex });
         });
 
         if (outlineItems.length > 0) {
           const refs = [];
-
           for (const item of outlineItems) {
             const pageRef = doc.getPages()[item.pageIndex].ref;
             const dict = context.obj({
@@ -1809,7 +1722,6 @@
             });
             refs.push(context.register(dict));
           }
-
           const outlineDict = context.obj({
             Type: PDFName.of("Outlines"),
             First: refs[0],
@@ -1817,19 +1729,16 @@
             Count: PDFNumber.of(refs.length)
           });
           const outlineRef = context.register(outlineDict);
-
           for (let i = 0; i < refs.length; i++) {
             const item = context.lookup(refs[i]);
             item.set(PDFName.of("Parent"), outlineRef);
             if (i > 0) item.set(PDFName.of("Prev"), refs[i - 1]);
             if (i < refs.length - 1) item.set(PDFName.of("Next"), refs[i + 1]);
           }
-
           doc.catalog.set(PDFName.of("Outlines"), outlineRef);
           doc.catalog.set(PDFName.of("PageMode"), PDFName.of("UseOutlines"));
         }
 
-        // Page Labels
         const nums = [];
         nums.push(PDFNumber.of(0));
         if (pageOffset > 1) {
@@ -1839,14 +1748,12 @@
         } else {
           nums.push(context.obj({ S: PDFName.of("D"), St: PDFNumber.of(1) }));
         }
-
         const labelsDict = context.obj({ Nums: nums });
         doc.catalog.set(PDFName.of("PageLabels"), context.register(labelsDict));
 
         const data = await doc.save();
         const blob = new Blob([data], { type: "application/pdf" });
         const url = URL.createObjectURL(blob);
-
         let outputFilename = $("output-filename").value.trim();
         if (!outputFilename) outputFilename = "processed_document.pdf";
         else if (!outputFilename.toLowerCase().endsWith(".pdf")) outputFilename += ".pdf";
@@ -1860,21 +1767,17 @@
         URL.revokeObjectURL(url);
 
         const chapterCount = outlineItems.length - (pageOffset > 1 ? 1 : 0);
-
         if (skippedItems.length > 0) {
           status.className = "status-box warning";
           status.textContent = "";
           status.appendChild(document.createTextNode(
             `PDF Generated with ${outlineItems.length} bookmarks (${chapterCount} chapters${pageOffset > 1 ? " + Front Matter" : ""}). `
           ));
-
           const skippedDiv = document.createElement("div");
           skippedDiv.className = "skipped-list";
-
           const strongEl = document.createElement("strong");
           strongEl.textContent = `${skippedItems.length} chapter(s) skipped:`;
           skippedDiv.appendChild(strongEl);
-
           const ul = document.createElement("ul");
           for (const item of skippedItems) {
             const li = document.createElement("li");
@@ -1895,6 +1798,21 @@
         btn.disabled = false;
       }
     }
+
+    // --- Event Listeners for Static Buttons ---
+    document.addEventListener('DOMContentLoaded', () => {
+      $("load-url-btn").addEventListener("click", loadFromUrl);
+      $("auto-detect-btn").addEventListener("click", autoDetectStructure);
+      $("prev-page-btn").addEventListener("click", () => previewPage(-1));
+      $("next-page-btn").addEventListener("click", () => previewPage(1));
+      $("save-preview-btn").addEventListener("click", savePreviewImage);
+      $("set-toc-current-btn").addEventListener("click", setTocToCurrentPage);
+      $("extract-btn").addEventListener("click", extractAndParseToc);
+      $("ocr-btn").addEventListener("click", runOcrAndParse);
+      $("undo-btn").addEventListener("click", undo);
+      $("redo-btn").addEventListener("click", redo);
+      $("process-btn").addEventListener("click", processPdf);
+    });
 
     // Init hint
     updatePageRangeHint();

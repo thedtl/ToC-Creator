@@ -312,7 +312,7 @@
                     <input type="text" id="pdf-url" placeholder="https://www.dropbox.com/s/..." style="flex: 1; margin-bottom: 0;">
                     <button onclick="loadFromUrl()" id="load-url-btn" class="secondary">Load</button>
                 </div>
-                <div style="font-size: 11px; color: #888; margin-top: 4px;">Paste a Dropbox share link (must be "Anyone with link can view")</div>
+                <div style="font-size: 11px; color: #888; margin-top: 4px;">Paste a Dropbox share link</div>
             </div>
         </div>
         
@@ -743,7 +743,9 @@
             }
         });
         
-        // Load PDF from Dropbox URL
+        // Load PDF from Dropbox URL (via CORS proxy)
+        const CORS_PROXY = 'https://toc-pdf-proxy.ccrawford.workers.dev';
+        
         async function loadFromUrl() {
             const urlInput = document.getElementById('pdf-url');
             const errorEl = document.getElementById('url-error');
@@ -758,16 +760,8 @@
                 return;
             }
             
-            // Convert Dropbox share links to direct download links
-            if (url.includes('dropbox.com')) {
-                // Simply ensure dl=1 is set for direct download
-                // Works with both old (/s/) and new (/scl/fi/) link formats
-                if (url.includes('dl=0')) {
-                    url = url.replace('dl=0', 'dl=1');
-                } else if (!url.includes('dl=1')) {
-                    url = url + (url.includes('?') ? '&' : '?') + 'dl=1';
-                }
-            } else {
+            // Validate it's a Dropbox URL
+            if (!url.includes('dropbox.com')) {
                 errorEl.textContent = 'Currently only Dropbox URLs are supported. Please use a Dropbox share link.';
                 errorEl.classList.remove('hidden');
                 return;
@@ -783,24 +777,26 @@
             btn.textContent = 'Loading...';
             
             try {
-                const response = await fetch(url, {
-                    mode: 'cors',
-                    credentials: 'omit',
+                // Use the CORS proxy
+                const proxyUrl = `${CORS_PROXY}/?url=${encodeURIComponent(url)}`;
+                
+                const response = await fetch(proxyUrl, {
                     signal: urlFetchController.signal
                 });
                 
                 if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-                
-                const contentType = response.headers.get('content-type');
-                if (contentType && !contentType.includes('pdf') && !contentType.includes('octet-stream')) {
-                    throw new Error('URL does not appear to be a PDF file');
+                    // Try to get error message from proxy
+                    let errorMsg = `HTTP ${response.status}`;
+                    try {
+                        const errorData = await response.json();
+                        if (errorData.error) errorMsg = errorData.error;
+                    } catch (e) {}
+                    throw new Error(errorMsg);
                 }
                 
                 const bytes = await response.arrayBuffer();
                 
-                // Extract filename from URL
+                // Extract filename from original URL
                 const urlPath = new URL(url).pathname;
                 const filename = decodeURIComponent(urlPath.split('/').pop()) || 'document.pdf';
                 
@@ -814,11 +810,7 @@
                 }
                 
                 console.error(err);
-                let msg = err.message;
-                if (err.name === 'TypeError' || err.message.includes('Failed to fetch') || err.message.includes('NetworkError') || err.message.includes('CORS')) {
-                    msg = 'Could not fetch the file. This may be due to browser security restrictions. Make sure: (1) The Dropbox link is set to "Anyone with the link can view", and (2) Try opening this tool from a local web server instead of directly from the file system.';
-                }
-                errorEl.textContent = msg;
+                errorEl.textContent = 'Error loading PDF: ' + err.message;
                 errorEl.classList.remove('hidden');
             } finally {
                 urlFetchController = null;

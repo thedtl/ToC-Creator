@@ -405,10 +405,6 @@
           <input type="checkbox" id="filter-subchapters" checked style="width: auto; margin: 0;">
           Skip subchapters (1.1, 2.3, etc.)
         </label>
-        <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85em; color: #666;">
-          <input type="checkbox" id="roman-is-frontmatter" checked style="width: auto; margin: 0;">
-          Treat Roman numerals (i, ii, iv) as Front Matter
-        </label>
       </div>
 
       <div id="extract-status" class="status-box hidden" style="margin-top: 10px;"></div>
@@ -536,6 +532,12 @@
     let isUndoRedo = false;
     let isBulkEdit = false;
     let urlFetchController = null;
+    
+    // Roman/Page Label State
+    let pageLabels = null;
+    let pageLabelIndexByLabel = null;
+    let detectedMaxRoman = 0;
+    let mainContentStartPdfPage = null;
 
     // --- DOM Elements ---
     const chapterListEl = document.getElementById("chapter-list");
@@ -578,6 +580,54 @@
       return Number.isFinite(n) ? n : NaN;
     }
 
+    function romanToInt(roman) {
+      const s = String(roman || "").toLowerCase();
+      if (!/^[ivxlcdm]+$/.test(s)) return NaN;
+
+      const map = { i:1, v:5, x:10, l:50, c:100, d:500, m:1000 };
+      let total = 0;
+      let prev = 0;
+
+      for (let i = s.length - 1; i >= 0; i--) {
+        const val = map[s[i]] || 0;
+        if (val < prev) total -= val;
+        else { total += val; prev = val; }
+      }
+      return total > 0 ? total : NaN;
+    }
+
+    function pageTokenToPdfIndex(token) {
+      const t = normalizePageToken(token).toLowerCase();
+      if (!t) return null;
+
+      // Arabic
+      if (/^\d+$/.test(t)) {
+        const pageNum = safeParseInt(t);
+        const pageOffset = safeParseInt(pageOffsetInput.value) || 1;
+        const pdfIndex = (pageNum - 1) + (pageOffset - 1);
+        return (pdfIndex >= 0 && pdfIndex < totalPages) ? pdfIndex : null;
+      }
+
+      // Roman
+      if (isRomanNumeralToken(t)) {
+        // 1) exact label match, best if available
+        if (pageLabelIndexByLabel && pageLabelIndexByLabel.has(t)) {
+          return pageLabelIndexByLabel.get(t);
+        }
+
+        // 2) infer using ToC max Roman, assumes max Roman page is right before Arabic 1
+        const rv = romanToInt(t);
+        const pageOffset = safeParseInt(pageOffsetInput.value) || 1;
+
+        if (Number.isFinite(rv) && rv > 0 && detectedMaxRoman > 0 && pageOffset > 1) {
+          const pdfIndex = (pageOffset - detectedMaxRoman + rv - 2);
+          return (pdfIndex >= 0 && pdfIndex < totalPages) ? pdfIndex : null;
+        }
+      }
+
+      return null;
+    }
+
     function resetChapterListAndHistory() {
       chapterListEl.innerHTML = '';
       history = [];
@@ -586,11 +636,126 @@
     }
 
     function fixSpacedSectionNumbersInTitle(title) {
-      // Example: "1 5 Más..." -> "1.5 Más..."
       return title.replace(
         /(^|\s)(\d{1,2})\s+(\d{1,2})(?=\s+[A-Za-zÁÉÍÓÚÜÑáéíóúüñ])/g,
         '$1$2.$3'
       );
+    }
+
+    // --- Content Detection Helpers ---
+    function foldText(s) {
+      return (s || "")
+        .normalize("NFD")
+        .replace(/\p{Diacritic}/gu, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
+    const MAIN_CONTENT_HEADINGS = new Set([
+      "introduction", "foreword", "preface", "prologue",
+      "introduccion", "prologo", "prefacio",
+      "avant propos", "preface", "prologue",
+      "einleitung", "vorwort", "prolog",
+      "introduzione", "prefazione", "prologo",
+      "introducao", "prefacio", "prologo"
+    ]);
+
+    function looksLikeTocLine(rawLine) {
+      const s = String(rawLine || "").trim();
+      if (!s) return false;
+
+      // dot leaders are a strong ToC signal
+      if (/(\.{4,}|(\.\s){6,})/.test(s)) return true;
+
+      // A trailing number can be ToC, but do not treat short headings like "Part 1" as ToC
+      // Require at least two words before the trailing number
+      const folded = foldText(s);
+      if (/\b\d+\b$/.test(folded)) {
+        const before = folded.replace(/\b\d+\b$/, "").trim();
+        const wordCount = before ? before.split(" ").length : 0;
+        if (wordCount >= 2) return true;
+      }
+
+      return false;
+    }
+
+    function matchesMainHeadingPrefix(foldedLine) {
+      if (!foldedLine) return false;
+
+      // exact
+      if (MAIN_CONTENT_HEADINGS.has(foldedLine)) return true;
+
+      // starts with: "introduction ..." or "preface ..."
+      for (const h of MAIN_CONTENT_HEADINGS) {
+        if (foldedLine.startsWith(h + " ")) return true;
+      }
+
+      // keep existing numbered and chapter patterns
+      return isMainHeadingLine(foldedLine);
+    }
+
+    function isMainHeadingLine(foldedLine) {
+      if (!foldedLine) return false;
+
+      // Prefix number: "1 introduction"
+      if (/^\d+\s+/.test(foldedLine)) {
+        const rest = foldedLine.replace(/^\d+\s+/, "");
+        if (MAIN_CONTENT_HEADINGS.has(rest)) return true;
+      }
+
+      // Chapter style: "chapter 1", "capitulo 1", "kapitel 1", etc.
+      if (/^(chapter|capitulo|capitolo|chapitre|kapitel|parte|part|teil|section|seccion)\s+1\b/.test(foldedLine)) {
+        return true;
+      }
+
+      // Chapter plus keyword: "chapter 1 introduction"
+      if (/^(chapter|capitulo|capitolo|chapitre|kapitel|parte|part|teil|section|seccion)\s+1\s+/.test(foldedLine)) {
+        const rest = foldedLine.replace(/^(chapter|capitulo|capitolo|chapitre|kapitel|parte|part|teil|section|seccion)\s+1\s+/, "");
+        if (MAIN_CONTENT_HEADINGS.has(rest)) return true;
+      }
+
+      return false;
+    }
+
+    function findMainContentStartFromTocEntries(entries) {
+      for (const e of entries || []) {
+        const foldedTitle = foldText(e.title || "");
+
+        // strip common prefixes before matching, so "chapter 1 introduction" works
+        const stripped = foldedTitle
+          .replace(/^(chapter|capitulo|capitolo|chapitre|kapitel|parte|part|teil|section|seccion)\s+\d+\s+/i, "");
+
+        if (matchesMainHeadingPrefix(stripped) || matchesMainHeadingPrefix(foldedTitle)) {
+          const idx = pageTokenToPdfIndex(e.page);
+          if (idx !== null) return idx + 1; // convert 0 based index to 1 based page number
+        }
+      }
+      return null;
+    }
+
+    async function findMainContentStartBetween(startPage, endPage) {
+      const s = Math.max(1, startPage);
+      const e = Math.min(totalPages, endPage);
+
+      for (let p = s; p <= e; p++) {
+        const lines = await extractTextLinesFromPage(p);
+        const clean = (lines || []).map(l => (l || "").trim()).filter(Boolean);
+        if (!clean.length) continue;
+
+        // only skip if it is strongly ToC like
+        const raw = clean.join("\n");
+        const strongToc = containsTocKeyword(raw) || containsDotLeaders(raw);
+        if (strongToc) continue;
+
+        for (const line of clean) {
+          if (looksLikeTocLine(line)) continue;
+          const folded = foldText(line);
+          if (matchesMainHeadingPrefix(folded)) return p;
+        }
+      }
+      return null;
     }
 
     // --- Raw ToC helpers ---
@@ -636,14 +801,12 @@
           };
         });
 
-      // Sort top-to-bottom (y desc), then left-to-right (x asc)
       items.sort((a, b) => {
         const dy = b.y - a.y;
         if (Math.abs(dy) > 0.5) return dy;
         return a.x - b.x;
       });
 
-      // Group into line buckets by y with adaptive tolerance
       const lines = [];
       const pushLine = (line) => {
         const text = assembleLineText(line.items);
@@ -752,6 +915,13 @@
 
         status.textContent = "Parsing chapters...";
         const result = parseTocText(raw);
+
+        // Try to find Introduction from parsed entries
+        const tocBasedStart = findMainContentStartFromTocEntries(result.entries);
+        if (tocBasedStart) {
+          mainContentStartPdfPage = tocBasedStart;
+          updateFrontMatterDisplay();
+        }
 
         if (result.count > 0) {
           status.className = "status-box success";
@@ -952,6 +1122,25 @@
       pdfDoc = await pdfjsLib.getDocument({ data: pdfBytes.slice(0) }).promise;
       totalPages = pdfDoc.numPages;
 
+      // Reset Roman/Label state
+      pageLabels = null;
+      pageLabelIndexByLabel = null;
+      mainContentStartPdfPage = null;
+      try {
+        pageLabels = await pdfDoc.getPageLabels();
+        if (Array.isArray(pageLabels) && pageLabels.length) {
+          pageLabelIndexByLabel = new Map();
+          for (let i = 0; i < pageLabels.length; i++) {
+            const lbl = normalizePageToken(pageLabels[i]).toLowerCase();
+            if (lbl && !pageLabelIndexByLabel.has(lbl)) {
+              pageLabelIndexByLabel.set(lbl, i); // i is 0-based PDF page index
+            }
+          }
+        }
+      } catch (e) {
+        // ignore
+      }
+
       $("file-info").textContent = `${filename} (${totalPages} pages)`;
       $("file-info-container").classList.remove("hidden");
       $("url-error").classList.add("hidden");
@@ -1003,21 +1192,20 @@
       return endsWithPage >= 4 && (endsWithPage / clean.length) >= 0.35;
     }
 
-    function dryParseTocFromLines(lines, romanIsFrontMatter) {
+    function dryParseTocFromLines(lines) {
       const cleaned = normalizeTocLinesForDetection(lines);
       if (cleaned.length === 0) return [];
       const format = detectTocFormat(cleaned);
       if (format === "page-first") {
-        return parsePageFirstFormat(cleaned, romanIsFrontMatter).entries;
+        return parsePageFirstFormat(cleaned).entries;
       }
-      return parsePageLastFormat(cleaned, romanIsFrontMatter);
+      return parsePageLastFormat(cleaned);
     }
 
     async function scoreTocPage(pageNum) {
-      const romanIsFrontMatter = $("roman-is-frontmatter")?.checked ?? true;
       const lines = await extractTextLinesFromPage(pageNum);
       const raw = (lines || []).join("\n");
-      const entries = dryParseTocFromLines(lines, romanIsFrontMatter);
+      const entries = dryParseTocFromLines(lines);
       const entryCount = entries.length;
 
       let score = entryCount;
@@ -1082,7 +1270,7 @@
         let tocStart = null;
         let tocEnd = null;
 
-        // --- 1. Page Offset Detection (Generalized Sequence Method) ---
+        // --- 1. Page Offset Detection (Generalized 3-Page Sequence Method) ---
         const getPageNumCandidates = async (pageNum) => {
           const page = await pdfDoc.getPage(pageNum);
           const textContent = await page.getTextContent();
@@ -1118,16 +1306,24 @@
             );
 
             if (b) {
-              // If PDF page i has printed N, book page 1 is i - (N - 1)
-              detectedOffset = i - (a.val - 1);
-              if (detectedOffset < 1) detectedOffset = 1;
-              break;
+              // Confirm with N+2
+              const nextNext = await getPageNumCandidates(i + 2);
+              const c = nextNext.find(k => 
+                k.val === b.val + 1 &&
+                Math.abs(k.y - b.y) < 50
+              );
+
+              if (c) {
+                // If PDF page i has printed N, book page 1 is i - (N - 1)
+                detectedOffset = i - (a.val - 1);
+                if (detectedOffset < 1) detectedOffset = 1;
+                break;
+              }
             }
           }
         }
 
         if (!detectedOffset) {
-          const pageLabels = await pdfDoc.getPageLabels(); 
           if (pageLabels && pageLabels.length > 0) {
             // Find first numeric label
             const index = pageLabels.findIndex(l => /^\d+$/.test(l));
@@ -1153,7 +1349,14 @@
           tocEnd = tocRange.end;
         }
 
-        // --- 3. Apply Results ---
+        // --- 3. Main Content Start Detection (Introduction/Preface) ---
+        mainContentStartPdfPage = null;
+        if (tocEnd && detectedOffset && detectedOffset > tocEnd + 1) {
+          // Scan the gap between ToC and Page 1
+          mainContentStartPdfPage = await findMainContentStartBetween(tocEnd + 1, detectedOffset - 1);
+        }
+
+        // --- 4. Apply Results ---
         let msg = [];
 
         if (detectedOffset) {
@@ -1384,6 +1587,13 @@
 
         clearImages();
 
+        // Try to find Introduction from parsed entries
+        const tocBasedStart = findMainContentStartFromTocEntries(result.entries);
+        if (tocBasedStart) {
+          mainContentStartPdfPage = tocBasedStart;
+          updateFrontMatterDisplay();
+        }
+
         if (result.count > 0) {
           status.className = "status-box success";
           let msg = `Found ${result.count} entries via OCR.`;
@@ -1432,7 +1642,6 @@
     // --- ToC Parsing ---
     function parseTocText(text) {
       const filterSubchapters = $("filter-subchapters").checked;
-      const romanIsFrontMatter = $("roman-is-frontmatter").checked;
 
       if (PARSE_BEHAVIOR.replaceExistingList) {
         resetChapterListAndHistory();
@@ -1450,12 +1659,19 @@
       let skippedNonMatches = 0;
 
       if (format === "page-first") {
-        const res = parsePageFirstFormat(lines, romanIsFrontMatter);
+        const res = parsePageFirstFormat(lines);
         extractedEntries = res.entries;
         skippedNonMatches = res.skippedNonMatches;
       } else {
-        extractedEntries = parsePageLastFormat(lines, romanIsFrontMatter);
+        extractedEntries = parsePageLastFormat(lines);
         skippedNonMatches = Math.max(0, lines.length - extractedEntries.length);
+      }
+
+      // Compute max Roman for fallback inference
+      detectedMaxRoman = 0;
+      for (const e of extractedEntries) {
+        const v = romanToInt(e.page);
+        if (Number.isFinite(v)) detectedMaxRoman = Math.max(detectedMaxRoman, v);
       }
 
       let parsedCount = 0;
@@ -1480,7 +1696,8 @@
       return {
         count: parsedCount,
         skippedSubchapters,
-        skippedNonMatches
+        skippedNonMatches,
+        entries: extractedEntries
       };
     }
 
@@ -1495,7 +1712,7 @@
       return pageFirstCount > pageLastCount ? "page-first" : "page-last";
     }
 
-    function parsePageFirstFormat(lines, romanIsFrontMatter) {
+    function parsePageFirstFormat(lines) {
       const entries = [];
       let skippedNonMatches = 0;
       const regex = /^(\d+|[ivxlcdm]+)\s+(.+)$/i;
@@ -1507,24 +1724,19 @@
           continue;
         }
 
-        const pageStr = normalizePageToken(match[1]);
+        const pageToken = normalizePageToken(match[1]);
         const title = cleanTitle(match[2]);
 
-        if (romanIsFrontMatter && isRomanNumeralToken(pageStr)) {
-          continue;
-        }
-
-        const page = safeParseInt(pageStr);
-        if (!title || !page) {
+        if (!title || !pageToken) {
           skippedNonMatches++;
           continue;
         }
-        entries.push({ title, page });
+        entries.push({ title, page: pageToken });
       }
       return { entries, skippedNonMatches };
     }
 
-    function parsePageLastFormat(lines, romanIsFrontMatter) {
+    function parsePageLastFormat(lines) {
       const entries = [];
       let buffer = '';
       let chapterPrefix = '';
@@ -1550,16 +1762,11 @@
         const standaloneMatch = trimmedLine.match(/^(\d+|[ivxlcdm]+)\.?$/i);
         if (standaloneMatch) {
           if (buffer || chapterPrefix || sectionPrefix) {
-            const pageStr = standaloneMatch[1];
-            if (romanIsFrontMatter && /^[ivxlcdm]+$/i.test(pageStr) && isNaN(pageStr)) {
-              buffer = ''; chapterPrefix = ''; sectionPrefix = '';
-              continue;
-            }
-            const page = parseInt(pageStr, 10);
+            const pageToken = normalizePageToken(standaloneMatch[1]);
             let fullTitle = buffer || '';
             if (chapterPrefix) fullTitle = chapterPrefix + (fullTitle ? ': ' + fullTitle : '');
             if (sectionPrefix) fullTitle = sectionPrefix + (fullTitle ? ': ' + fullTitle : '');
-            entries.push({ title: cleanTitle(fullTitle), page });
+            entries.push({ title: cleanTitle(fullTitle), page: pageToken });
             buffer = ''; chapterPrefix = ''; sectionPrefix = '';
           }
           continue;
@@ -1569,18 +1776,14 @@
         if (inlineMatch) {
           const potentialTitle = inlineMatch[1];
           const potentialPage = inlineMatch[2];
-          if (romanIsFrontMatter && /^[ivxlcdm]+$/i.test(potentialPage) && isNaN(potentialPage)) {
-            buffer = ''; chapterPrefix = ''; sectionPrefix = '';
-            continue;
-          }
           const titleWithoutTrailing = potentialTitle.replace(/[._\-\s]+$/, '').trim();
           if (titleWithoutTrailing.length > 0 && /[a-zA-ZáéíóúñüÁÉÍÓÚÑÜ]/.test(titleWithoutTrailing)) {
             const combinedTitle = buffer ? buffer + ' ' + titleWithoutTrailing : titleWithoutTrailing;
             let fullTitle = combinedTitle;
             if (chapterPrefix) fullTitle = chapterPrefix + ': ' + fullTitle;
             if (sectionPrefix) fullTitle = sectionPrefix + ': ' + fullTitle;
-            const page = parseInt(potentialPage, 10);
-            entries.push({ title: cleanTitle(fullTitle), page });
+            const pageToken = normalizePageToken(potentialPage);
+            entries.push({ title: cleanTitle(fullTitle), page: pageToken });
             buffer = ''; chapterPrefix = ''; sectionPrefix = '';
             continue;
           }
@@ -1628,11 +1831,11 @@
       titleInput.value = title || "";
       titleInput.placeholder = "Title";
       const pageInput = document.createElement("input");
-      pageInput.type = "number";
+      pageInput.type = "text"; // Changed to text to support Roman numerals
+      pageInput.inputMode = "text";
       pageInput.className = "chapter-page";
       pageInput.value = page || "";
       pageInput.placeholder = "Pg";
-      pageInput.min = "1";
       const deleteBtn = document.createElement("button");
       deleteBtn.className = "danger";
       deleteBtn.style.padding = "5px 10px";
@@ -1694,33 +1897,31 @@
     }
 
     function getPageFromRow(row) {
-      const val = row.querySelector(".chapter-page").value.trim();
-      return safeParseInt(val) || 999999;
+      const token = row.querySelector(".chapter-page").value.trim();
+      const idx = pageTokenToPdfIndex(token);
+      return idx === null ? 999999 : idx;
     }
 
     function validateChapter(row) {
       if (!totalPages) return true;
       const pageInput = row.querySelector(".chapter-page");
-      const pageVal = pageInput.value.trim();
+      const token = pageInput.value.trim();
       const msgEl = row.querySelector(".validation-msg");
-      if (!pageVal) {
+      
+      if (!token) {
         row.classList.remove("invalid");
         if (msgEl) msgEl.textContent = "";
         return true;
       }
-      const pageNum = safeParseInt(pageVal);
-      if (!pageNum || pageNum < 1) {
+
+      const pdfIndex = pageTokenToPdfIndex(token);
+
+      if (pdfIndex === null) {
         row.classList.add("invalid");
-        if (msgEl) msgEl.textContent = "Enter a valid page number";
+        if (msgEl) msgEl.textContent = `Cannot map "${token}" to a PDF page.`;
         return false;
       }
-      const pageOffset = safeParseInt(pageOffsetInput.value) || 1;
-      const pdfIndex = (pageNum - 1) + (pageOffset - 1);
-      if (pdfIndex < 0 || pdfIndex >= totalPages) {
-        row.classList.add("invalid");
-        if (msgEl) msgEl.textContent = `Page ${pageVal} → PDF page ${pdfIndex + 1} (out of range 1-${totalPages})`;
-        return false;
-      }
+
       row.classList.remove("invalid");
       if (msgEl) msgEl.textContent = "";
       return true;
@@ -1749,7 +1950,12 @@
       } else {
         frontMatterRow.classList.remove("hidden");
         const endPage = pageOffset - 1;
-        frontMatterPages.textContent = endPage === 1 ? "PDF page 1" : `PDF pages 1-${endPage}`;
+        
+        let text = `PDF pages 1-${endPage}`;
+        if (mainContentStartPdfPage && mainContentStartPdfPage < pageOffset) {
+          text += `. Main Content (Introduction) starts at PDF pg ${mainContentStartPdfPage}.`;
+        }
+        frontMatterPages.textContent = text;
       }
     }
 
@@ -1762,14 +1968,13 @@
       let isUnsorted = false;
 
       for (const row of rows) {
-        const pageVal = row.querySelector(".chapter-page").value.trim();
-        if (!pageVal) continue;
-        const currentPage = safeParseInt(pageVal) || 0;
-        if (currentPage < lastPage) {
+        const idx = getPageFromRow(row);
+        if (idx === 999999) continue;
+        if (idx < lastPage) {
           isUnsorted = true;
           break;
         }
-        lastPage = currentPage;
+        lastPage = idx;
       }
 
       if (isUnsorted) {
@@ -1804,16 +2009,13 @@
           const title = row.querySelector(".chapter-title").value.trim();
           const pageVal = row.querySelector(".chapter-page").value.trim();
           if (!title || !pageVal) return;
-          const pageNum = safeParseInt(pageVal);
-          if (!pageNum || pageNum < 1) {
-            skippedItems.push({ title, pageVal, reason: "Invalid page number" });
+
+          const pdfIndex = pageTokenToPdfIndex(pageVal);
+          if (pdfIndex === null) {
+            skippedItems.push({ title, pageVal, reason: "Cannot map page token to a PDF page" });
             return;
           }
-          const pdfIndex = (pageNum - 1) + (pageOffset - 1);
-          if (pdfIndex < 0 || pdfIndex >= numPages) {
-            skippedItems.push({ title, pageVal, reason: `Maps to PDF page ${pdfIndex + 1} (out of range 1-${numPages})` });
-            return;
-          }
+          
           outlineItems.push({ title, pageIndex: pdfIndex });
         });
 

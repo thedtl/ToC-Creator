@@ -512,6 +512,40 @@
   <script>
     // --- Configuration ---
     pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+    
+    const CLOUD_OCR_URL = "https://toc-ocr-482285058910.us-west3.run.app";
+
+    async function renderPageToPngBlob(pageNum, scale = 4) {
+      const page = await pdfDoc.getPage(pageNum);
+      const viewport = page.getViewport({ scale });
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      await page.render({ canvasContext: ctx, viewport }).promise;
+
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
+      return blob;
+    }
+
+    async function cloudOcrRange(startPage, endPage) {
+      const lang = ($("ocr-lang").value || "spa,eng").split(",").map(s => s.trim()).filter(Boolean).join("+");
+      const psm = String(parseInt($("ocr-psm").value, 10) || 6);
+
+      const form = new FormData();
+      form.append("lang", lang);
+      form.append("psm", psm);
+
+      for (let p = startPage; p <= endPage; p++) {
+        const blob = await renderPageToPngBlob(p, 4);
+        form.append("images", blob, `toc_page_${p}.png`);
+      }
+
+      const res = await fetch(`${CLOUD_OCR_URL}/ocr-images`, { method: "POST", body: form });
+      if (!res.ok) throw new Error(`Cloud OCR failed: HTTP ${res.status}`);
+      const data = await res.json();
+      return data.text || "";
+    }
 
     // --- Parsing behavior ---
     const PARSE_BEHAVIOR = {
@@ -908,8 +942,36 @@
         setRawToc(raw);
 
         if (raw.length < 20) {
-          status.className = "status-box warning";
-          status.textContent = "Very little text found. This PDF may be a scanned image. Try the OCR option below.";
+          status.className = "status-box processing";
+          status.textContent = "Text layer is thin. Using Cloud OCR on the ToC pages...";
+          try {
+            const ocrText = await cloudOcrRange(startPage, endPage);
+            setRawToc(ocrText);
+            status.textContent = "Parsing chapters (from Cloud OCR)...";
+            const result = parseTocText(ocrText);
+
+            // Try to find Introduction from parsed entries
+            const tocBasedStart = findMainContentStartFromTocEntries(result.entries);
+            if (tocBasedStart) {
+              mainContentStartPdfPage = tocBasedStart;
+              updateFrontMatterDisplay();
+            }
+
+            if (result.count > 0) {
+              status.className = "status-box success";
+              let msg = `Found ${result.count} entries (Cloud OCR).`;
+              if (result.skippedSubchapters > 0) msg += ` (Skipped ${result.skippedSubchapters} subchapters)`;
+              if (result.skippedNonMatches > 0) msg += ` (Ignored ${result.skippedNonMatches} non-entry lines)`;
+              status.textContent = msg;
+              validateAllChapters();
+            } else {
+              status.className = "status-box warning";
+              status.textContent = "Cloud OCR completed but could not find any ToC entries.";
+            }
+          } catch (e) {
+             status.className = "status-box error";
+             status.textContent = "Cloud OCR failed: " + e.message;
+          }
           return;
         }
 

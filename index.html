@@ -512,66 +512,75 @@
   <script>
     // --- Configuration ---
     const PDFJS_VERSION = "3.11.174";
-pdfjsLib.GlobalWorkerOptions.workerSrc =
-  `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}/pdf.worker.min.js`;
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}/pdf.worker.min.js`;
     
     const CLOUD_OCR_URL = "https://toc-ocr-482285058910.us-west3.run.app";
 
-async function renderPageToJpegBlob(pageNum, scale = 2.5, quality = 0.85) {
-  const page = await pdfDoc.getPage(pageNum);
-  const viewport = page.getViewport({ scale });
+    async function renderPageToJpegBlob(pageNum, scale = 2.5, quality = 0.85) {
+      const page = await pdfDoc.getPage(pageNum);
+      const viewport = page.getViewport({ scale });
 
-  const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
 
-  canvas.width = viewport.width;
-  canvas.height = viewport.height;
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
 
-  // White background improves OCR + JPEG compression
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+      // White background improves OCR + JPEG compression
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  await page.render({ canvasContext: ctx, viewport }).promise;
+      await page.render({ canvasContext: ctx, viewport }).promise;
 
-  const blob = await new Promise(resolve =>
-    canvas.toBlob(resolve, "image/jpeg", quality)
-  );
+      const blob = await new Promise(resolve =>
+        canvas.toBlob(resolve, "image/jpeg", quality)
+      );
 
-  return blob;
-}
-
-async function cloudOcrRange(startPage, endPage) {
-  const lang = ($("ocr-lang").value || "spa,eng")
-    .split(",").map(s => s.trim()).filter(Boolean).join("+");
-  const psm = String(parseInt($("ocr-psm").value, 10) || 6);
-
-  const BATCH_SIZE = 3;
-  const parts = [];
-
-  for (let batchStart = startPage; batchStart <= endPage; batchStart += BATCH_SIZE) {
-    const batchEnd = Math.min(endPage, batchStart + BATCH_SIZE - 1);
-
-    const form = new FormData();
-    form.append("lang", lang);
-    form.append("psm", psm);
-
-    for (let p = batchStart; p <= batchEnd; p++) {
-      const blob = await renderPageToJpegBlob(p, 2.5, 0.85);
-      form.append("images", blob, `toc_page_${p}.jpg`);
+      return blob;
     }
 
-    const res = await fetch(`${CLOUD_OCR_URL}/ocr-images`, { method: "POST", body: form });
-    if (!res.ok) throw new Error(`Cloud OCR failed: HTTP ${res.status}`);
+    // FIX: Added the missing cloudOcrRangeWithRaw function
+    async function cloudOcrRangeWithRaw(startPage, endPage) {
+      const lang = ($("ocr-lang").value || "spa,eng")
+        .split(",").map(s => s.trim()).filter(Boolean).join("+");
+      const psm = String(parseInt($("ocr-psm").value, 10) || 6);
 
-    const data = await res.json();
-    if (data.raw_text) parts.push(data.raw_text);
-    else if (data.text) parts.push(data.text);
-  }
+      const BATCH_SIZE = 3;
+      const rawParts = [];
+      const filteredParts = [];
 
-  return parts.join("\n").trim();
-}
+      for (let batchStart = startPage; batchStart <= endPage; batchStart += BATCH_SIZE) {
+        const batchEnd = Math.min(endPage, batchStart + BATCH_SIZE - 1);
 
-    
+        const form = new FormData();
+        form.append("lang", lang);
+        form.append("psm", psm);
+
+        for (let p = batchStart; p <= batchEnd; p++) {
+          const blob = await renderPageToJpegBlob(p, 2.5, 0.85);
+          form.append("images", blob, `toc_page_${p}.jpg`);
+        }
+
+        const res = await fetch(`${CLOUD_OCR_URL}/ocr-images`, { method: "POST", body: form });
+        if (!res.ok) throw new Error(`Cloud OCR failed: HTTP ${res.status}`);
+
+        const data = await res.json();
+        if (data.raw_text) rawParts.push(data.raw_text);
+        if (data.text) filteredParts.push(data.text);
+      }
+
+      return {
+        raw: rawParts.join("\n").trim(),
+        filtered: filteredParts.join("\n").trim()
+      };
+    }
+
+    // Keep the original cloudOcrRange for backward compatibility
+    async function cloudOcrRange(startPage, endPage) {
+      const result = await cloudOcrRangeWithRaw(startPage, endPage);
+      return result.raw;
+    }
 
     // --- Parsing behavior ---
     const PARSE_BEHAVIOR = {
@@ -950,7 +959,7 @@ async function cloudOcrRange(startPage, endPage) {
       const status = $("extract-status");
       const btn = $("extract-btn");
 
-      const MAX_OCR_PAGES = 12; // change later if you want
+      const MAX_OCR_PAGES = 12;
       const pageCount = (endPage - startPage + 1);
 
       if (pageCount > MAX_OCR_PAGES) {
@@ -966,7 +975,7 @@ async function cloudOcrRange(startPage, endPage) {
         status.classList.remove("hidden");
         return;
       }
-      }
+      // FIX: Removed extra closing brace that was here
 
       btn.disabled = true;
       btn.textContent = "Extracting...";
@@ -991,7 +1000,6 @@ async function cloudOcrRange(startPage, endPage) {
             status.textContent = "Parsing chapters (from Cloud OCR)...";
             const result = parseTocText(ocr.filtered);
 
-
             // Try to find Introduction from parsed entries
             const tocBasedStart = findMainContentStartFromTocEntries(result.entries);
             if (tocBasedStart) {
@@ -1011,8 +1019,8 @@ async function cloudOcrRange(startPage, endPage) {
               status.textContent = "Cloud OCR completed but could not find any ToC entries.";
             }
           } catch (e) {
-             status.className = "status-box error";
-             status.textContent = "Cloud OCR failed: " + e.message;
+            status.className = "status-box error";
+            status.textContent = "Cloud OCR failed: " + e.message;
           }
           return;
         }
@@ -1021,42 +1029,41 @@ async function cloudOcrRange(startPage, endPage) {
         const result = parseTocText(raw);
 
         // If we couldn't parse enough entries from the text layer, fall back to Cloud OCR
-if (result.count < 3) {
-  status.className = "status-box processing";
-  status.textContent = "Parsing was weak. Using Cloud OCR on the ToC pages...";
+        if (result.count < 3) {
+          status.className = "status-box processing";
+          status.textContent = "Parsing was weak. Using Cloud OCR on the ToC pages...";
 
-  try {
-    const ocrText = await cloudOcrRange(startPage, endPage);
-    setRawToc(ocrText);
-    status.textContent = "Parsing chapters (from Cloud OCR)...";
+          try {
+            const ocr = await cloudOcrRangeWithRaw(startPage, endPage);
+            setRawToc(ocr.raw);
+            status.textContent = "Parsing chapters (from Cloud OCR)...";
 
-    const ocrResult = parseTocText(ocrText);
+            const ocrResult = parseTocText(ocr.filtered);
 
-    const tocBasedStart = findMainContentStartFromTocEntries(ocrResult.entries);
-    if (tocBasedStart) {
-      mainContentStartPdfPage = tocBasedStart;
-      updateFrontMatterDisplay();
-    }
+            const tocBasedStart = findMainContentStartFromTocEntries(ocrResult.entries);
+            if (tocBasedStart) {
+              mainContentStartPdfPage = tocBasedStart;
+              updateFrontMatterDisplay();
+            }
 
-    if (ocrResult.count > 0) {
-      status.className = "status-box success";
-      let msg = `Found ${ocrResult.count} entries (Cloud OCR).`;
-      if (ocrResult.skippedSubchapters > 0) msg += ` (Skipped ${ocrResult.skippedSubchapters} subchapters)`;
-      if (ocrResult.skippedNonMatches > 0) msg += ` (Ignored ${ocrResult.skippedNonMatches} non-entry lines)`;
-      status.textContent = msg;
-      validateAllChapters();
-    } else {
-      status.className = "status-box warning";
-      status.textContent = "Cloud OCR completed but could not find any ToC entries.";
-    }
-  } catch (e) {
-    status.className = "status-box error";
-    status.textContent = "Cloud OCR failed: " + e.message;
-  }
+            if (ocrResult.count > 0) {
+              status.className = "status-box success";
+              let msg = `Found ${ocrResult.count} entries (Cloud OCR).`;
+              if (ocrResult.skippedSubchapters > 0) msg += ` (Skipped ${ocrResult.skippedSubchapters} subchapters)`;
+              if (ocrResult.skippedNonMatches > 0) msg += ` (Ignored ${ocrResult.skippedNonMatches} non-entry lines)`;
+              status.textContent = msg;
+              validateAllChapters();
+            } else {
+              status.className = "status-box warning";
+              status.textContent = "Cloud OCR completed but could not find any ToC entries.";
+            }
+          } catch (e) {
+            status.className = "status-box error";
+            status.textContent = "Cloud OCR failed: " + e.message;
+          }
 
-  return; // stop here; we already handled the OCR path
-}
-
+          return;
+        }
 
         // Try to find Introduction from parsed entries
         const tocBasedStart = findMainContentStartFromTocEntries(result.entries);
@@ -2262,6 +2269,8 @@ if (result.count < 3) {
       $("undo-btn").addEventListener("click", undo);
       $("redo-btn").addEventListener("click", redo);
       $("process-btn").addEventListener("click", processPdf);
+      $("preview-canvas").addEventListener("click", openPreviewFullSize);
+      $("preview-scale").addEventListener("change", () => renderPreview(currentPreviewPage));
     });
 
     // Init hint

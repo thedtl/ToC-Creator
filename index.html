@@ -417,7 +417,7 @@
       <div style="margin-top: 12px; display: flex; flex-direction: column; gap: 8px;">
         <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85em; color: #666;">
           <input type="checkbox" id="filter-subchapters" checked style="width: auto; margin: 0;">
-          Skip subchapters (1.1, 2.3, etc.)
+          Skip subchapters (indented entries, 1.1, etc.)
         </label>
       </div>
 
@@ -554,7 +554,6 @@
       return blob;
     }
 
-    // FIX: Added the missing cloudOcrRangeWithRaw function
     async function cloudOcrRangeWithRaw(startPage, endPage) {
       const lang = ($("ocr-lang").value || "spa,eng")
         .split(",").map(s => s.trim()).filter(Boolean).join("+");
@@ -708,7 +707,6 @@
       const { allowRawPdfPage = false } = options;
       const t = normalizePageToken(token).toLowerCase();
       if (!t) {
-        console.log(`pageTokenToPdfIndex: empty token after normalize, input was "${token}"`);
         return null;
       }
 
@@ -716,14 +714,11 @@
       if (/^\d+$/.test(t)) {
         const pageNum = safeParseInt(t);
         if (!Number.isFinite(pageNum) || pageNum < 1) {
-          console.log(`pageTokenToPdfIndex: invalid pageNum ${pageNum} from "${t}"`);
           return null;
         }
         
         const pageOffset = safeParseInt(pageOffsetInput.value) || 1;
         const pdfIndex = (pageNum - 1) + (pageOffset - 1);
-        
-        console.log(`pageTokenToPdfIndex: "${token}" → pageNum=${pageNum}, offset=${pageOffset}, pdfIndex=${pdfIndex}, totalPages=${totalPages}`);
         
         // Check if valid with offset applied
         if (pdfIndex >= 0 && pdfIndex < totalPages) {
@@ -731,14 +726,11 @@
         }
         
         // If offset calculation fails, check if it's a raw PDF page number
-        // This handles cases where ToC uses PDF page numbers directly (e.g., back matter)
         const rawPdfIndex = pageNum - 1;
         if (rawPdfIndex >= 0 && rawPdfIndex < totalPages) {
-          console.log(`pageTokenToPdfIndex: using raw PDF index ${rawPdfIndex} for "${token}"`);
           return { index: rawPdfIndex, isRawPdfPage: true };
         }
         
-        console.log(`pageTokenToPdfIndex: FAILED for "${token}" - pdfIndex ${pdfIndex} and rawPdfIndex ${rawPdfIndex} both out of range (totalPages=${totalPages})`);
         return null;
       }
 
@@ -764,7 +756,6 @@
         }
       }
 
-      console.log(`pageTokenToPdfIndex: no match for "${token}" (normalized: "${t}")`);
       return null;
     }
     
@@ -889,8 +880,8 @@
       const e = Math.min(totalPages, endPage);
 
       for (let p = s; p <= e; p++) {
-        const lines = await extractTextLinesFromPage(p);
-        const clean = (lines || []).map(l => (l || "").trim()).filter(Boolean);
+        const linesObj = await extractTextLinesFromPage(p);
+        const clean = (linesObj || []).map(o => (o.text || "").trim()).filter(Boolean);
         if (!clean.length) continue;
 
         // only skip if it is strongly ToC like
@@ -935,7 +926,11 @@
     // --- PDF Text Extraction ---
     async function extractTextLinesFromPage(pageNum) {
       const page = await pdfDoc.getPage(pageNum);
-      const textContent = await page.getTextContent();
+      // Use specific PDF.js options for better text extraction
+      const textContent = await page.getTextContent({
+        normalizeWhitespace: true,
+        disableCombineTextItems: false
+      });
 
       const items = (textContent.items || [])
         .filter(it => it && typeof it.str === "string" && it.str.trim() !== "")
@@ -959,7 +954,10 @@
       const lines = [];
       const pushLine = (line) => {
         const text = assembleLineText(line.items);
-        if (text.trim()) lines.push(text.trim());
+        if (!text.trim()) return;
+        // Calculate minX for indent detection
+        const minX = Math.min(...line.items.map(it => it.x ?? 0));
+        lines.push({ text: text.trim(), minX });
       };
 
       let current = null;
@@ -1021,10 +1019,53 @@
       let allLines = [];
       for (let p = startPage; p <= endPage; p++) {
         if (statusEl) statusEl.textContent = `Extracting page ${p} of ${endPage}...`;
-        const lines = await extractTextLinesFromPage(p);
-        allLines = allLines.concat(lines).concat([""]);
+        const linesObj = await extractTextLinesFromPage(p);
+        const textLines = (linesObj || []).map(o => o.text);
+        allLines = allLines.concat(textLines).concat([""]);
       }
       return allLines.join("\n").trim();
+    }
+
+    async function extractLinesObjFromRange(startPage, endPage, statusEl) {
+      let all = [];
+      for (let p = startPage; p <= endPage; p++) {
+        if (statusEl) statusEl.textContent = `Extracting page ${p} of ${endPage}...`;
+        const linesObj = await extractTextLinesFromPage(p);
+        all = all.concat(linesObj || []).concat([{ text: "", minX: 0 }]); // blank separator
+      }
+      return all;
+    }
+
+    function computeIndentThreshold(linesObj) {
+      const xs = (linesObj || [])
+        .map(o => o.minX)
+        .filter(x => Number.isFinite(x));
+
+      if (xs.length < 8) return null;
+
+      xs.sort((a, b) => a - b);
+
+      // median
+      const mid = Math.floor(xs.length / 2);
+      const median = xs.length % 2 ? xs[mid] : (xs[mid - 1] + xs[mid]) / 2;
+
+      // Consider "indented" anything meaningfully to the right of median
+      // This value works well across many PDFs; you can tweak 18-30.
+      return median + 24;
+    }
+
+    function filterIndentedLines(linesObj) {
+      const thresh = computeIndentThreshold(linesObj);
+      if (thresh === null) return linesObj;
+
+      return (linesObj || []).filter(o => {
+        const t = (o.text || "").trim();
+        if (!t) return true;
+        // Never drop structural lines even if indented (rare)
+        if (/^(introduction|conclusion|preface|foreword|bibliography|references|index)\b/i.test(t)) return true;
+        // Drop if indented
+        return !(Number.isFinite(o.minX) && o.minX >= thresh);
+      });
     }
 
     // --- Step 3: Extract & Parse ---
@@ -1039,15 +1080,8 @@
       const status = $("extract-status");
       const btn = $("extract-btn");
 
-      const MAX_OCR_PAGES = 12;
+      const MAX_CLOUD_OCR_PAGES = 12;
       const pageCount = (endPage - startPage + 1);
-
-      if (pageCount > MAX_OCR_PAGES) {
-        status.className = "status-box error";
-        status.textContent = `That range is ${pageCount} pages. For safety, OCR is limited to ${MAX_OCR_PAGES} pages. Please reduce the ToC range.`;
-        status.classList.remove("hidden");
-        return;
-      }
 
       if (startPage < 1 || endPage > totalPages || startPage > endPage) {
         status.className = "status-box error";
@@ -1055,7 +1089,6 @@
         status.classList.remove("hidden");
         return;
       }
-      // FIX: Removed extra closing brace that was here
 
       btn.disabled = true;
       btn.textContent = "Extracting...";
@@ -1064,10 +1097,28 @@
       status.classList.remove("hidden");
 
       try {
-        const raw = await extractTextFromRange(startPage, endPage, status);
+        // Extract structured lines first
+        let linesObj = await extractLinesObjFromRange(startPage, endPage, status);
+
+        // Apply indent filtering if requested
+        if ($("filter-subchapters").checked) {
+          linesObj = filterIndentedLines(linesObj);
+        }
+
+        const raw = (linesObj || []).map(o => o.text).join("\n").trim();
         setRawToc(raw);
 
-        if (raw.length < 20) {
+        const needCloudOcr = raw.length < 20;
+        if (needCloudOcr && pageCount > MAX_CLOUD_OCR_PAGES) {
+          status.className = "status-box error";
+          status.textContent =
+            `Text layer is thin, but Cloud OCR is limited to ${MAX_CLOUD_OCR_PAGES} pages. ` +
+            `Split the ToC into smaller chunks.`;
+          status.classList.remove("hidden");
+          return;
+        }
+
+        if (needCloudOcr) {
           status.className = "status-box processing";
           status.textContent = "Text layer is thin. Using Cloud OCR on the ToC pages...";
           try {
@@ -1080,7 +1131,6 @@
             status.textContent = "Parsing chapters (from Cloud OCR)...";
             const result = parseTocText(ocr.filtered);
 
-            // Try to find Introduction from parsed entries
             const tocBasedStart = findMainContentStartFromTocEntries(result.entries);
             if (tocBasedStart) {
               mainContentStartPdfPage = tocBasedStart;
@@ -1110,39 +1160,43 @@
 
         // If we couldn't parse enough entries from the text layer, fall back to Cloud OCR
         if (result.count < 3) {
-          status.className = "status-box processing";
-          status.textContent = "Parsing was weak. Using Cloud OCR on the ToC pages...";
+          if (pageCount > MAX_CLOUD_OCR_PAGES) {
+             // Just warn, don't block, since we already tried parsing text
+             console.warn("Parsing weak, but range too large for auto-OCR fallback.");
+          } else {
+            status.className = "status-box processing";
+            status.textContent = "Parsing was weak. Using Cloud OCR on the ToC pages...";
 
-          try {
-            const ocr = await cloudOcrRangeWithRaw(startPage, endPage);
-            setRawToc(ocr.raw);
-            status.textContent = "Parsing chapters (from Cloud OCR)...";
+            try {
+              const ocr = await cloudOcrRangeWithRaw(startPage, endPage);
+              setRawToc(ocr.raw);
+              status.textContent = "Parsing chapters (from Cloud OCR)...";
 
-            const ocrResult = parseTocText(ocr.filtered);
+              const ocrResult = parseTocText(ocr.filtered);
 
-            const tocBasedStart = findMainContentStartFromTocEntries(ocrResult.entries);
-            if (tocBasedStart) {
-              mainContentStartPdfPage = tocBasedStart;
-              updateFrontMatterDisplay();
+              const tocBasedStart = findMainContentStartFromTocEntries(ocrResult.entries);
+              if (tocBasedStart) {
+                mainContentStartPdfPage = tocBasedStart;
+                updateFrontMatterDisplay();
+              }
+
+              if (ocrResult.count > 0) {
+                status.className = "status-box success";
+                let msg = `Found ${ocrResult.count} entries (Cloud OCR).`;
+                if (ocrResult.skippedSubchapters > 0) msg += ` (Skipped ${ocrResult.skippedSubchapters} subchapters)`;
+                if (ocrResult.skippedNonMatches > 0) msg += ` (Ignored ${ocrResult.skippedNonMatches} non-entry lines)`;
+                status.textContent = msg;
+                validateAllChapters();
+              } else {
+                status.className = "status-box warning";
+                status.textContent = "Cloud OCR completed but could not find any ToC entries.";
+              }
+            } catch (e) {
+              status.className = "status-box error";
+              status.textContent = "Cloud OCR failed: " + e.message;
             }
-
-            if (ocrResult.count > 0) {
-              status.className = "status-box success";
-              let msg = `Found ${ocrResult.count} entries (Cloud OCR).`;
-              if (ocrResult.skippedSubchapters > 0) msg += ` (Skipped ${ocrResult.skippedSubchapters} subchapters)`;
-              if (ocrResult.skippedNonMatches > 0) msg += ` (Ignored ${ocrResult.skippedNonMatches} non-entry lines)`;
-              status.textContent = msg;
-              validateAllChapters();
-            } else {
-              status.className = "status-box warning";
-              status.textContent = "Cloud OCR completed but could not find any ToC entries.";
-            }
-          } catch (e) {
-            status.className = "status-box error";
-            status.textContent = "Cloud OCR failed: " + e.message;
+            return;
           }
-
-          return;
         }
 
         // Try to find Introduction from parsed entries
@@ -1217,14 +1271,19 @@
         });
       });
 
+      // Drop redo states if user edited after undo
       if (historyIndex < history.length - 1) {
         history = history.slice(0, historyIndex + 1);
       }
 
       history.push(JSON.stringify(chapters));
-      if (history.length > 50) history.shift();
-      else historyIndex++;
 
+      // Cap history size safely
+      if (history.length > 50) {
+        history.shift();
+      }
+
+      historyIndex = history.length - 1;
       updateHistoryButtons();
     }
 
@@ -1432,7 +1491,8 @@
     }
 
     async function scoreTocPage(pageNum) {
-      const lines = await extractTextLinesFromPage(pageNum);
+      const linesObj = await extractTextLinesFromPage(pageNum);
+      const lines = (linesObj || []).map(o => o.text);
       const raw = (lines || []).join("\n");
       const entries = dryParseTocFromLines(lines);
       const entryCount = entries.length;
@@ -1907,6 +1967,10 @@
 
     // Lines that are just noise (standalone headers/footers)
     const NOISE_LINE_PATTERNS = [
+      /^(part|parte|teil)\s+\d+$/i,
+      /^(part|parte|teil)\s+[ivxlcdm]+$/i,
+      /^book\s+\d+$/i,
+      /^volume\s+\d+$/i,
       /^[ivxlcdm]+$/i,                    // Just "vii" or "viii"
       /^\d+$/,                            // Just a page number
       /^[ivxlcdm]+\s+contents$/i,         // "viii CONTENTS" standalone

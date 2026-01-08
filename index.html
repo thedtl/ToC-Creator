@@ -1891,6 +1891,48 @@
     }
 
     // --- ToC Parsing ---
+    // Patterns to strip from the BEGINNING of lines (merged headers from PDF extraction)
+    const STRIP_PREFIX_PATTERNS = [
+      /^[ivxlcdm]+\s+contents\s+/i,      // "viii CONTENTS 9 After..." -> "9 After..."
+      /^contents\s+/i,                    // "CONTENTS 1 Introduction" -> "1 Introduction"
+      /^table\s+of\s+contents\s+/i,
+      /^índice\s+/i,
+      /^indice\s+/i,
+      /^sommaire\s+/i,
+      /^inhalt\s+/i,
+      /^sommario\s+/i,
+      /^inhaltsverzeichnis\s+/i,
+      /^[ivxlcdm]+\s+(?=\d+\s+[A-Z])/i,  // "vii 1 Introduction" -> "1 Introduction"
+    ];
+
+    // Lines that are just noise (standalone headers/footers)
+    const NOISE_LINE_PATTERNS = [
+      /^[ivxlcdm]+$/i,                    // Just "vii" or "viii"
+      /^\d+$/,                            // Just a page number
+      /^[ivxlcdm]+\s+contents$/i,         // "viii CONTENTS" standalone
+      /^contents$/i,
+      /^table\s+of\s+contents$/i,
+      /^index$/i,
+      /^índice$/i,
+      /^indice$/i,
+    ];
+
+    function stripMergedHeaders(line) {
+      let result = line.trim();
+      for (const pattern of STRIP_PREFIX_PATTERNS) {
+        result = result.replace(pattern, "").trim();
+      }
+      return result;
+    }
+
+    function isNoiseLine(line) {
+      const trimmed = line.trim();
+      for (const pattern of NOISE_LINE_PATTERNS) {
+        if (pattern.test(trimmed)) return true;
+      }
+      return false;
+    }
+
     function parseTocText(text) {
       const filterSubchapters = $("filter-subchapters").checked;
 
@@ -1903,7 +1945,11 @@
         .map(l => l.trim())
         .filter(Boolean);
 
-      lines = lines.map(l => l.replace(/\.{2,}/g, " ").replace(/\s{2,}/g, " ").trim());
+      // Clean lines: strip merged headers and remove noise
+      lines = lines
+        .map(l => stripMergedHeaders(l))
+        .filter(l => l && !isNoiseLine(l))
+        .map(l => l.replace(/\.{2,}/g, " ").replace(/\s{2,}/g, " ").trim());
 
       const format = detectTocFormat(lines);
       let extractedEntries = [];

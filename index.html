@@ -583,6 +583,18 @@
       if (!res.ok) throw new Error(`Cloud OCR failed: ${res.status} ${await res.text()}`);
 
       const data = await res.json();
+      
+      // DEBUG: Log full response to console
+      console.log("=== CLOUD OCR RESPONSE ===");
+      console.log("Engine:", data.engine, "Lang:", data.engine_lang);
+      console.log("Debug info:", JSON.stringify(data.debug, null, 2));
+      console.log("Number of entries:", data.entries?.length || 0);
+      if (data.entries) {
+        data.entries.forEach((e, i) => {
+          console.log(`Entry ${i + 1}: "${e.title?.substring(0, 80)}${e.title?.length > 80 ? '...' : ''}" → page ${e.page}`);
+        });
+      }
+      console.log("=== END OCR RESPONSE ===");
 
       // Always show raw text for debugging
       const raw = data.raw_text || data.text || "";

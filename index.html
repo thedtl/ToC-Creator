@@ -511,7 +511,9 @@
 
   <script>
     // --- Configuration ---
-    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+    const PDFJS_VERSION = "3.11.174";
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}/pdf.worker.min.js`;
     
     const CLOUD_OCR_URL = "https://toc-ocr-482285058910.us-west3.run.app";
 

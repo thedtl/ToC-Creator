@@ -540,25 +540,37 @@ async function renderPageToJpegBlob(pageNum, scale = 2.5, quality = 0.85) {
   return blob;
 }
 
+async function cloudOcrRange(startPage, endPage) {
+  const lang = ($("ocr-lang").value || "spa,eng")
+    .split(",").map(s => s.trim()).filter(Boolean).join("+");
+  const psm = String(parseInt($("ocr-psm").value, 10) || 6);
 
-    async function cloudOcrRange(startPage, endPage) {
-      const lang = ($("ocr-lang").value || "spa,eng").split(",").map(s => s.trim()).filter(Boolean).join("+");
-      const psm = String(parseInt($("ocr-psm").value, 10) || 6);
+  const BATCH_SIZE = 3;
+  const parts = [];
 
-      const form = new FormData();
-      form.append("lang", lang);
-      form.append("psm", psm);
+  for (let batchStart = startPage; batchStart <= endPage; batchStart += BATCH_SIZE) {
+    const batchEnd = Math.min(endPage, batchStart + BATCH_SIZE - 1);
 
-      for (let p = startPage; p <= endPage; p++) {
-        renderPageToJpegBlob(p, 2.5, 0.85)
-        form.append("images", blob, `toc_page_${p}.png`);
-      }
+    const form = new FormData();
+    form.append("lang", lang);
+    form.append("psm", psm);
 
-      const res = await fetch(`${CLOUD_OCR_URL}/ocr-images`, { method: "POST", body: form });
-      if (!res.ok) throw new Error(`Cloud OCR failed: HTTP ${res.status}`);
-      const data = await res.json();
-      return data.text || "";
+    for (let p = batchStart; p <= batchEnd; p++) {
+      const blob = await renderPageToJpegBlob(p, 2.5, 0.85);
+      form.append("images", blob, `toc_page_${p}.jpg`);
     }
+
+    const res = await fetch(`${CLOUD_OCR_URL}/ocr-images`, { method: "POST", body: form });
+    if (!res.ok) throw new Error(`Cloud OCR failed: HTTP ${res.status}`);
+
+    const data = await res.json();
+    if (data.text) parts.push(data.text);
+  }
+
+  return parts.join("\n").trim();
+}
+
+    
 
     // --- Parsing behavior ---
     const PARSE_BEHAVIOR = {

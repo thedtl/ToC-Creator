@@ -454,9 +454,14 @@
           <label>
             OCR languages:
             <select id="ocr-lang">
-              <option value="spa,eng" selected>Spanish + English</option>
-              <option value="spa">Spanish only</option>
-              <option value="eng">English only</option>
+              <option value="en">English</option>
+              <option value="es">Spanish</option>
+              <option value="fr">French</option>
+              <option value="de">German</option>
+              <option value="korean">Korean</option>
+              <option value="el">Greek</option>
+              <option value="ar">Arabic</option>
+              <option value="heb">Hebrew (Tesseract)</option>
             </select>
           </label>
 
@@ -554,45 +559,69 @@
       return blob;
     }
 
-    async function cloudOcrRangeWithRaw(startPage, endPage) {
-      const lang = ($("ocr-lang").value || "spa,eng")
-        .split(",").map(s => s.trim()).filter(Boolean).join("+");
-      const psm = String(parseInt($("ocr-psm").value, 10) || 6);
+    // Updated Cloud OCR Logic
+    async function cloudOcrRangeWithRaw(start, end, statusEl) {
+      const lang = document.getElementById("ocr-lang").value || "en";
 
-      const BATCH_SIZE = 3;
-      const rawParts = [];
-      const filteredParts = [];
-
-      for (let batchStart = startPage; batchStart <= endPage; batchStart += BATCH_SIZE) {
-        const batchEnd = Math.min(endPage, batchStart + BATCH_SIZE - 1);
-
-        const form = new FormData();
-        form.append("lang", lang);
-        form.append("psm", psm);
-
-        for (let p = batchStart; p <= batchEnd; p++) {
-          const blob = await renderPageToJpegBlob(p, 2.5, 0.85);
-          form.append("images", blob, `toc_page_${p}.jpg`);
-        }
-
-        const res = await fetch(`${CLOUD_OCR_URL}/ocr-images`, { method: "POST", body: form });
-        if (!res.ok) throw new Error(`Cloud OCR failed: HTTP ${res.status}`);
-
-        const data = await res.json();
-        if (data.raw_text) rawParts.push(data.raw_text);
-        if (data.text) filteredParts.push(data.text);
+      // render pages to images
+      if (statusEl) statusEl.textContent = `Rendering ${end - start + 1} pages for Cloud OCR...`;
+      const blobs = [];
+      for (let p = start; p <= end; p++) {
+        // Use scale 3.0 and quality 0.9 as requested
+        const blob = await renderPageToJpegBlob(p, 3.0, 0.9);
+        blobs.push(blob);
       }
 
-      return {
-        raw: rawParts.join("\n").trim(),
-        filtered: filteredParts.join("\n").trim()
-      };
-    }
+      if (statusEl) statusEl.textContent = "Uploading to Cloud OCR...";
+      const fd = new FormData();
+      blobs.forEach((b, i) => fd.append("images", b, `page-${start + i}.jpg`));
+      fd.append("lang", lang);
+      fd.append("psm", "6");
+      fd.append("preprocess", "true");
 
-    // Keep the original cloudOcrRange for backward compatibility
-    async function cloudOcrRange(startPage, endPage) {
-      const result = await cloudOcrRangeWithRaw(startPage, endPage);
-      return result.raw;
+      const res = await fetch(`${CLOUD_OCR_URL}/ocr-images`, { method: "POST", body: fd });
+      if (!res.ok) throw new Error(`Cloud OCR failed: ${res.status} ${await res.text()}`);
+
+      const data = await res.json();
+
+      // Always show raw text for debugging
+      const raw = data.raw_text || data.text || "";
+      setRawToc(raw);
+
+      // Prefer structured entries if provided
+      if (Array.isArray(data.entries) && data.entries.length) {
+        isBulkEdit = true;
+        resetChapterList();
+        for (const e of data.entries) {
+          addChapterWithData(e.title, e.page);
+        }
+        isBulkEdit = false;
+        saveState();
+        
+        if (statusEl) {
+          statusEl.className = "status-box success";
+          statusEl.textContent = `Cloud OCR: extracted ${data.entries.length} entries`;
+        }
+        validateAllChapters();
+        return;
+      }
+
+      // Fallback to existing parser if needed
+      if (statusEl) statusEl.textContent = "Cloud OCR returned text. Parsing locally...";
+      const result = parseTocText(data.text || raw);
+      
+      // Update status based on local parse result
+      if (statusEl) {
+         if (result.count > 0) {
+            statusEl.className = "status-box success";
+            let msg = `Found ${result.count} entries (Cloud OCR + Local Parse).`;
+            if (result.skippedSubchapters > 0) msg += ` (Skipped ${result.skippedSubchapters} subchapters)`;
+            statusEl.textContent = msg;
+         } else {
+            statusEl.className = "status-box warning";
+            statusEl.textContent = "Cloud OCR completed but could not find any ToC entries.";
+         }
+      }
     }
 
     // --- Parsing behavior ---
@@ -1122,32 +1151,8 @@
           status.className = "status-box processing";
           status.textContent = "Text layer is thin. Using Cloud OCR on the ToC pages...";
           try {
-            const ocr = await cloudOcrRangeWithRaw(startPage, endPage);
-
-            // Show TRUE raw OCR in the debug box
-            setRawToc(ocr.raw);
-
-            // Parse using FILTERED OCR text
-            status.textContent = "Parsing chapters (from Cloud OCR)...";
-            const result = parseTocText(ocr.filtered);
-
-            const tocBasedStart = findMainContentStartFromTocEntries(result.entries);
-            if (tocBasedStart) {
-              mainContentStartPdfPage = tocBasedStart;
-              updateFrontMatterDisplay();
-            }
-
-            if (result.count > 0) {
-              status.className = "status-box success";
-              let msg = `Found ${result.count} entries (Cloud OCR).`;
-              if (result.skippedSubchapters > 0) msg += ` (Skipped ${result.skippedSubchapters} subchapters)`;
-              if (result.skippedNonMatches > 0) msg += ` (Ignored ${result.skippedNonMatches} non-entry lines)`;
-              status.textContent = msg;
-              validateAllChapters();
-            } else {
-              status.className = "status-box warning";
-              status.textContent = "Cloud OCR completed but could not find any ToC entries.";
-            }
+            // Use the new handler which updates UI directly
+            await cloudOcrRangeWithRaw(startPage, endPage, status);
           } catch (e) {
             status.className = "status-box error";
             status.textContent = "Cloud OCR failed: " + e.message;
@@ -1168,29 +1173,8 @@
             status.textContent = "Parsing was weak. Using Cloud OCR on the ToC pages...";
 
             try {
-              const ocr = await cloudOcrRangeWithRaw(startPage, endPage);
-              setRawToc(ocr.raw);
-              status.textContent = "Parsing chapters (from Cloud OCR)...";
-
-              const ocrResult = parseTocText(ocr.filtered);
-
-              const tocBasedStart = findMainContentStartFromTocEntries(ocrResult.entries);
-              if (tocBasedStart) {
-                mainContentStartPdfPage = tocBasedStart;
-                updateFrontMatterDisplay();
-              }
-
-              if (ocrResult.count > 0) {
-                status.className = "status-box success";
-                let msg = `Found ${ocrResult.count} entries (Cloud OCR).`;
-                if (ocrResult.skippedSubchapters > 0) msg += ` (Skipped ${ocrResult.skippedSubchapters} subchapters)`;
-                if (ocrResult.skippedNonMatches > 0) msg += ` (Ignored ${ocrResult.skippedNonMatches} non-entry lines)`;
-                status.textContent = msg;
-                validateAllChapters();
-              } else {
-                status.className = "status-box warning";
-                status.textContent = "Cloud OCR completed but could not find any ToC entries.";
-              }
+              // Use the new handler which updates UI directly
+              await cloudOcrRangeWithRaw(startPage, endPage, status);
             } catch (e) {
               status.className = "status-box error";
               status.textContent = "Cloud OCR failed: " + e.message;

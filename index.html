@@ -971,10 +971,15 @@ async function cloudOcrRange(startPage, endPage) {
           status.className = "status-box processing";
           status.textContent = "Text layer is thin. Using Cloud OCR on the ToC pages...";
           try {
-            const ocrText = await cloudOcrRange(startPage, endPage);
-            setRawToc(ocrText);
+            const ocr = await cloudOcrRangeWithRaw(startPage, endPage);
+
+            // Show TRUE raw OCR in the debug box
+            setRawToc(ocr.raw);
+
+            // Parse using FILTERED OCR text
             status.textContent = "Parsing chapters (from Cloud OCR)...";
-            const result = parseTocText(ocrText);
+            const result = parseTocText(ocr.filtered);
+
 
             // Try to find Introduction from parsed entries
             const tocBasedStart = findMainContentStartFromTocEntries(result.entries);

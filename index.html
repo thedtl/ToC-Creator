@@ -536,6 +536,125 @@
     
     const CLOUD_OCR_URL = "https://toc-ocr-482285058910.us-west3.run.app";
 
+    // =====================================================
+    // TEXT LAYER EXTRACTION (Path A - preferred for born-digital PDFs)
+    // =====================================================
+    
+    /**
+     * Extract text layer tokens from a PDF page using PDF.js getTextContent()
+     * This gives us the actual embedded text with positions - no OCR errors!
+     */
+    async function extractTextLayerTokens(pdf, pageNum, scale = 1.0) {
+      const page = await pdf.getPage(pageNum);
+      const viewport = page.getViewport({ scale });
+      const textContent = await page.getTextContent();
+      
+      const tokens = [];
+      
+      for (const item of textContent.items) {
+        const text = (item.str || "").trim();
+        if (!text) continue;
+        
+        // item.transform is a 6-number matrix [a, b, c, d, e, f]
+        // We need to transform it to viewport coordinates
+        const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
+        
+        const x = tx[4];
+        const y = tx[5];
+        const w = item.width || 0;
+        const h = item.height || 10;
+        
+        // y is the baseline, so bbox is approximately [x, y-h, x+w, y]
+        tokens.push({
+          text,
+          x0: x,
+          y0: y - h,
+          x1: x + w,
+          y1: y,
+          score: 1.0,
+          page_index: pageNum
+        });
+      }
+      
+      return { tokens, width: viewport.width, height: viewport.height };
+    }
+    
+    /**
+     * Check if the text layer has enough content to be useful
+     */
+    function textLayerLooksReal(tokens) {
+      const charCount = tokens.reduce((n, t) => n + t.text.length, 0);
+      // Need at least 30 tokens and 200 characters
+      return tokens.length >= 30 && charCount >= 200;
+    }
+    
+    /**
+     * Parse ToC using PDF text layer (no OCR needed)
+     * Returns null if text layer is insufficient, triggering OCR fallback
+     */
+    async function parseTocViaTextLayer(pdf, tocPages, statusEl) {
+      const allTokens = [];
+      let pageW = null;
+      let pageH = null;
+      
+      for (const p of tocPages) {
+        if (statusEl) statusEl.textContent = `Extracting text layer from page ${p}...`;
+        
+        const { tokens, width, height } = await extractTextLayerTokens(pdf, p, 1.0);
+        
+        if (!textLayerLooksReal(tokens)) {
+          console.log(`Text layer on page ${p} looks thin (${tokens.length} tokens), will use OCR`);
+          return null; // Signal to use OCR fallback
+        }
+        
+        allTokens.push(...tokens);
+        pageW = width;
+        pageH = height;
+      }
+      
+      if (!allTokens.length || !pageW) {
+        return null;
+      }
+      
+      if (statusEl) statusEl.textContent = "Parsing text layer...";
+      
+      // Call the backend parser with the tokens
+      const res = await fetch(`${CLOUD_OCR_URL}/parse-toc-tokens`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          tokens: allTokens, 
+          img_w: pageW, 
+          img_h: pageH 
+        })
+      });
+      
+      if (!res.ok) {
+        console.warn("Text layer parsing failed:", await res.text());
+        return null;
+      }
+      
+      const data = await res.json();
+      
+      // Debug logging
+      console.log("=== TEXT LAYER RESPONSE ===");
+      console.log("Source:", data.source);
+      console.log("Token count:", data.debug?.token_count);
+      console.log("Number of entries:", data.entries?.length || 0);
+      if (data.entries) {
+        data.entries.forEach((e, i) => {
+          console.log(`Entry ${i + 1}: "${e.title?.substring(0, 80)}${e.title?.length > 80 ? '...' : ''}" → page ${e.page}`);
+        });
+      }
+      console.log("=== END TEXT LAYER RESPONSE ===");
+      
+      return data;
+    }
+
+    // =====================================================
+    // OCR PATH (Path B - fallback for scanned PDFs)
+    // =====================================================
+
     async function renderPageToJpegBlob(pageNum, scale = 2.5, quality = 0.85) {
       const page = await pdfDoc.getPage(pageNum);
       const viewport = page.getViewport({ scale });
@@ -559,15 +678,56 @@
       return blob;
     }
 
-    // Updated Cloud OCR Logic
+    // =====================================================
+    // UNIFIED TOC EXTRACTION (tries text layer first, then OCR)
+    // =====================================================
+
     async function cloudOcrRangeWithRaw(start, end, statusEl) {
       const lang = document.getElementById("ocr-lang").value || "en";
+      const tocPages = [];
+      for (let p = start; p <= end; p++) tocPages.push(p);
 
-      // render pages to images
+      // ===== PATH A: Try text layer first (preferred for born-digital PDFs) =====
+      if (statusEl) statusEl.textContent = "Checking PDF text layer...";
+      
+      try {
+        const textLayerResult = await parseTocViaTextLayer(pdfDoc, tocPages, statusEl);
+        
+        if (textLayerResult && Array.isArray(textLayerResult.entries) && textLayerResult.entries.length >= 3) {
+          // Text layer worked! Use these results
+          const raw = textLayerResult.raw_text || textLayerResult.text || "";
+          setRawToc(raw);
+          
+          isBulkEdit = true;
+          resetChapterList();
+          for (const e of textLayerResult.entries) {
+            addChapterWithData(e.title, e.page);
+          }
+          isBulkEdit = false;
+          saveState();
+          
+          if (statusEl) {
+            statusEl.className = "status-box success";
+            statusEl.textContent = `Text layer: extracted ${textLayerResult.entries.length} entries (no OCR needed)`;
+          }
+          validateAllChapters();
+          return;
+        }
+        
+        // Text layer didn't return enough entries, fall through to OCR
+        if (textLayerResult) {
+          console.log("Text layer returned only", textLayerResult.entries?.length || 0, "entries, trying OCR...");
+        }
+      } catch (e) {
+        console.warn("Text layer extraction failed:", e);
+        // Fall through to OCR
+      }
+
+      // ===== PATH B: OCR fallback (for scanned PDFs or thin text layers) =====
       if (statusEl) statusEl.textContent = `Rendering ${end - start + 1} pages for Cloud OCR...`;
+      
       const blobs = [];
       for (let p = start; p <= end; p++) {
-        // Use scale 3.0 and quality 0.9 as requested
         const blob = await renderPageToJpegBlob(p, 3.0, 0.9);
         blobs.push(blob);
       }
@@ -586,7 +746,7 @@
       
       // DEBUG: Log full response to console
       console.log("=== CLOUD OCR RESPONSE ===");
-      console.log("Engine:", data.engine, "Lang:", data.engine_lang);
+      console.log("Source:", data.source, "Engine:", data.engine, "Lang:", data.engine_lang);
       console.log("Debug info:", JSON.stringify(data.debug, null, 2));
       console.log("Number of entries:", data.entries?.length || 0);
       if (data.entries) {
@@ -1425,8 +1585,25 @@
         // ignore
       }
 
+      // Check for existing PDF outline/bookmarks
+      let existingOutline = null;
+      try {
+        existingOutline = await pdfDoc.getOutline();
+        if (existingOutline && existingOutline.length > 0) {
+          console.log("PDF has existing outline with", existingOutline.length, "top-level items");
+        }
+      } catch (e) {
+        // ignore
+      }
+
       $("file-info").textContent = `${filename} (${totalPages} pages)`;
       $("file-info-container").classList.remove("hidden");
+      
+      // Show outline notice if PDF already has bookmarks
+      if (existingOutline && existingOutline.length > 0) {
+        $("file-info").textContent = `${filename} (${totalPages} pages) - Has ${existingOutline.length} existing bookmarks`;
+      }
+      
       $("url-error").classList.add("hidden");
       pageOffsetInput.max = totalPages;
 

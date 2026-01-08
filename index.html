@@ -1003,6 +1003,44 @@ async function cloudOcrRange(startPage, endPage) {
         status.textContent = "Parsing chapters...";
         const result = parseTocText(raw);
 
+        // If we couldn't parse enough entries from the text layer, fall back to Cloud OCR
+if (result.count < 3) {
+  status.className = "status-box processing";
+  status.textContent = "Parsing was weak. Using Cloud OCR on the ToC pages...";
+
+  try {
+    const ocrText = await cloudOcrRange(startPage, endPage);
+    setRawToc(ocrText);
+    status.textContent = "Parsing chapters (from Cloud OCR)...";
+
+    const ocrResult = parseTocText(ocrText);
+
+    const tocBasedStart = findMainContentStartFromTocEntries(ocrResult.entries);
+    if (tocBasedStart) {
+      mainContentStartPdfPage = tocBasedStart;
+      updateFrontMatterDisplay();
+    }
+
+    if (ocrResult.count > 0) {
+      status.className = "status-box success";
+      let msg = `Found ${ocrResult.count} entries (Cloud OCR).`;
+      if (ocrResult.skippedSubchapters > 0) msg += ` (Skipped ${ocrResult.skippedSubchapters} subchapters)`;
+      if (ocrResult.skippedNonMatches > 0) msg += ` (Ignored ${ocrResult.skippedNonMatches} non-entry lines)`;
+      status.textContent = msg;
+      validateAllChapters();
+    } else {
+      status.className = "status-box warning";
+      status.textContent = "Cloud OCR completed but could not find any ToC entries.";
+    }
+  } catch (e) {
+    status.className = "status-box error";
+    status.textContent = "Cloud OCR failed: " + e.message;
+  }
+
+  return; // stop here; we already handled the OCR path
+}
+
+
         // Try to find Introduction from parsed entries
         const tocBasedStart = findMainContentStartFromTocEntries(result.entries);
         if (tocBasedStart) {

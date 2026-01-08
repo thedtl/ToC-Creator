@@ -564,7 +564,8 @@ async function cloudOcrRange(startPage, endPage) {
     if (!res.ok) throw new Error(`Cloud OCR failed: HTTP ${res.status}`);
 
     const data = await res.json();
-    if (data.text) parts.push(data.text);
+    if (data.raw_text) parts.push(data.raw_text);
+    else if (data.text) parts.push(data.text);
   }
 
   return parts.join("\n").trim();

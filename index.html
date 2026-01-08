@@ -950,11 +950,22 @@ async function cloudOcrRange(startPage, endPage) {
       const status = $("extract-status");
       const btn = $("extract-btn");
 
+      const MAX_OCR_PAGES = 12; // change later if you want
+      const pageCount = (endPage - startPage + 1);
+
+      if (pageCount > MAX_OCR_PAGES) {
+        status.className = "status-box error";
+        status.textContent = `That range is ${pageCount} pages. For safety, OCR is limited to ${MAX_OCR_PAGES} pages. Please reduce the ToC range.`;
+        status.classList.remove("hidden");
+        return;
+      }
+
       if (startPage < 1 || endPage > totalPages || startPage > endPage) {
         status.className = "status-box error";
         status.textContent = `Invalid page range. PDF has ${totalPages} pages.`;
         status.classList.remove("hidden");
         return;
+      }
       }
 
       btn.disabled = true;

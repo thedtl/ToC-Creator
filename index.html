@@ -550,7 +550,7 @@ async function renderPageToJpegBlob(pageNum, scale = 2.5, quality = 0.85) {
       form.append("psm", psm);
 
       for (let p = startPage; p <= endPage; p++) {
-        const blob = await renderPageToPngBlob(p, 4);
+        renderPageToJpegBlob(p, 2.5, 0.85)
         form.append("images", blob, `toc_page_${p}.png`);
       }
 

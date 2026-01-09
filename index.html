@@ -2253,9 +2253,21 @@
         s = s.replace(/\b[oOeEiIcCnNrRsStTaA]{8,}\b/g, " ");
         s = s.replace(/\s+/g, " ").trim();
         
-        // Fix: Remove spaces entirely between digits at the end of the line
-        // "Chapter 1 4 5" -> "Chapter 145"
-        s = s.replace(/(\d)(?:\s+\d)+$/g, (m) => m.replace(/\s+/g, ""));
+        // Fix: Remove spaces between digits at the end of the line
+        // "Chapter Title 1 2 3" -> "Chapter Title 123"
+        s = s.replace(/(\)|\w)\s+(\d+(?:\s+\d+)+)\s*$/g, (match, prefix, digits) => {
+          return prefix + ' ' + digits.replace(/\s+/g, '');
+        });
+        
+        // Fix: Remove spaces between roman numerals at end of line
+        // "Preface x ii i" -> "Preface xiii"
+        s = s.replace(/(\w)\s+([ivxlcdm]+(?:\s+[ivxlcdm]+)+)\s*$/gi, (match, prefix, roman) => {
+          const merged = roman.replace(/\s+/g, '');
+          if (/^[ivxlcdm]+$/i.test(merged)) {
+            return prefix + ' ' + merged;
+          }
+          return match;
+        });
         
         return s;
       });
@@ -2307,6 +2319,31 @@
       for (const pattern of STRIP_PREFIX_PATTERNS) {
         result = result.replace(pattern, "").trim();
       }
+      return result;
+    }
+
+    function fixSpacedPageNumbers(s) {
+      // Fix OCR artifacts where page numbers have spaces between digits
+      // e.g., "Chapter Title 1 23" -> "Chapter Title 123"
+      // e.g., "Preface x ii i" -> "Preface xiii"
+      
+      let result = s.trim();
+      
+      // Fix spaced Arabic numerals at end: "Title 1 23" -> "Title 123"
+      // Match: word/paren followed by space, then digit groups separated by spaces
+      result = result.replace(/(\)|\w)\s+(\d+(?:\s+\d+)+)\s*$/g, (match, prefix, digits) => {
+        return prefix + ' ' + digits.replace(/\s+/g, '');
+      });
+      
+      // Fix spaced Roman numerals at end: "Preface x ii i" -> "Preface xiii"
+      result = result.replace(/(\w)\s+([ivxlcdm]+(?:\s+[ivxlcdm]+)+)\s*$/gi, (match, prefix, roman) => {
+        const merged = roman.replace(/\s+/g, '');
+        if (/^[ivxlcdm]+$/i.test(merged)) {
+          return prefix + ' ' + merged;
+        }
+        return match;
+      });
+      
       return result;
     }
 
@@ -2390,7 +2427,8 @@
       lines = lines
         .map(l => stripMergedHeaders(l))
         .filter(l => l && !isNoiseLine(l))
-        .map(l => l.replace(/\.{2,}/g, " ").replace(/\s{2,}/g, " ").trim());
+        .map(l => l.replace(/\.{2,}/g, " ").replace(/\s{2,}/g, " ").trim())
+        .map(l => fixSpacedPageNumbers(l));  // Fix OCR spacing in page numbers
 
       const format = detectTocFormat(lines);
       let extractedEntries = [];

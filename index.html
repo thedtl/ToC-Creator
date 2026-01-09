@@ -384,7 +384,11 @@
         <div class="flex-row" style="justify-content: space-between; margin-bottom: 5px; flex-wrap: wrap; gap: 5px;">
           <div class="flex-row">
             <button id="prev-page-btn" class="secondary" style="padding: 5px 10px;">◀</button>
-            <span id="preview-page-num" style="font-weight: bold; min-width: 60px; text-align: center;">Page 1</span>
+            <div style="display: flex; align-items: center; gap: 4px;">
+              <span style="font-size: 0.85em; color: #666;">Page</span>
+              <input type="number" id="preview-page-input" value="1" min="1" style="width: 60px; margin: 0; padding: 4px; text-align: center; font-weight: bold;">
+              <span id="preview-page-total" style="font-size: 0.85em; color: #666;">/ ?</span>
+            </div>
             <button id="next-page-btn" class="secondary" style="padding: 5px 10px;">▶</button>
           </div>
           <div class="flex-row">
@@ -2070,7 +2074,9 @@
     async function renderPreview(pageNum) {
       if (!pdfDoc) return;
       currentPreviewPage = pageNum;
-      $("preview-page-num").textContent = `Page ${pageNum}`;
+      $("preview-page-input").value = pageNum;
+      $("preview-page-input").max = totalPages;
+      $("preview-page-total").textContent = `/ ${totalPages}`;
 
       const page = await pdfDoc.getPage(pageNum);
       const scale = parseFloat($("preview-scale").value) || 1.5;
@@ -3619,6 +3625,24 @@
       $("auto-detect-btn").addEventListener("click", autoDetectStructure);
       $("prev-page-btn").addEventListener("click", () => previewPage(-1));
       $("next-page-btn").addEventListener("click", () => previewPage(1));
+      
+      // Allow user to type a page number directly
+      $("preview-page-input").addEventListener("change", () => {
+        const inputVal = parseInt($("preview-page-input").value, 10);
+        if (Number.isFinite(inputVal) && inputVal >= 1 && inputVal <= totalPages) {
+          renderPreview(inputVal);
+        } else {
+          // Reset to current page if invalid
+          $("preview-page-input").value = currentPreviewPage;
+        }
+      });
+      
+      // Also handle Enter key
+      $("preview-page-input").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.target.blur();  // Trigger change event
+        }
+      });
       $("save-preview-btn").addEventListener("click", savePreviewImage);
       $("set-toc-current-btn").addEventListener("click", setTocToCurrentPage);
       $("extract-btn").addEventListener("click", extractAndParseToc);

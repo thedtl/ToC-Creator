@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>PDF ToC Tool</title>
+  <title>PDF ToC Tool v2 (Vertical Format Support)</title>
 
   <!-- Libraries -->
   <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
@@ -1497,8 +1497,9 @@
         if (result.count > 0) {
           status.className = "status-box success";
           let msg = `Found ${result.count} entries.`;
-          if (result.skippedSubchapters > 0) msg += ` (Skipped ${result.skippedSubchapters} subchapters)`;
-          if (result.skippedNonMatches > 0) msg += ` (Ignored ${result.skippedNonMatches} non-entry lines)`;
+          if (result.format) msg += ` (${result.format} format)`;
+          if (result.skippedSubchapters > 0) msg += ` Skipped ${result.skippedSubchapters} subchapters.`;
+          if (result.skippedNonMatches > 0) msg += ` Ignored ${result.skippedNonMatches} non-entry lines.`;
           status.textContent = msg;
           validateAllChapters();
         } else {
@@ -1770,7 +1771,7 @@
     }
 
     function containsTocKeyword(rawText) {
-      return /(table of contents|contents|índice|indice|contenido|sommaire|inhalt|capitoli|sommario|tavola|agenda)\b/i
+      return /(table of contents|contents|contenido|índice|indice|tabla de contenido|sommaire|inhalt|inhaltsverzeichnis|capitoli|sommario|tavola|agenda)\b/i
         .test(rawText || "");
     }
 
@@ -1789,6 +1790,9 @@
       const cleaned = normalizeTocLinesForDetection(lines);
       if (cleaned.length === 0) return [];
       const format = detectTocFormat(cleaned);
+      if (format === "vertical") {
+        return parseVerticalFormat(cleaned);
+      }
       if (format === "page-first") {
         return parsePageFirstFormat(cleaned).entries;
       }
@@ -1806,6 +1810,10 @@
       if (containsTocKeyword(raw)) score += 6;
       if (containsDotLeaders(raw)) score += 2;
       if (isListLikeByLineEndings(lines)) score += 2;
+      
+      // Bonus for standalone page numbers (vertical format indicator)
+      const standalonePages = lines.filter(l => /^(\d+|[ivxlcdm]+)$/i.test(l.trim())).length;
+      if (standalonePages >= 3) score += Math.min(standalonePages, 8);
 
       return { pageNum, score, entryCount, hasKeyword: containsTocKeyword(raw) };
     }
@@ -2310,6 +2318,62 @@
       return false;
     }
 
+    // --- Author Detection for Vertical ToC Format ---
+    function isLikelyAuthor(s) {
+      const str = (s || "").trim();
+      if (!str) return false;
+      
+      // Structural entries are NOT authors
+      const structuralLower = str.toLowerCase();
+      const structuralKeywords = [
+        'prefacio', 'preface', 'prólogo', 'prologue', 'introducción', 'introduction',
+        'conclusión', 'conclusion', 'epílogo', 'epilogue', 'bibliografía', 'bibliography',
+        'referencias', 'references', 'índice', 'index', 'apéndice', 'appendix',
+        'agradecimientos', 'acknowledgements', 'contenido', 'contents',
+        'parte', 'part', 'chapter', 'capítulo', 'section', 'sección'
+      ];
+      for (const kw of structuralKeywords) {
+        if (structuralLower.includes(kw)) return false;
+      }
+      
+      // If it contains & between names, likely author(s)
+      if (/[A-Z][a-zá-ú]+.*\s+&\s+.*[A-Z][a-zá-ú]+/.test(str)) return true;
+      
+      // If it contains " y " (Spanish "and") between capitalized words
+      if (/[A-Z][a-zá-ú]+.*\s+y\s+.*[A-Z][a-zá-ú]+/.test(str)) return true;
+      
+      // Typical author pattern: 2-5 words, has capitals, may have periods (initials)
+      const words = str.split(/\s+/);
+      if (words.length < 2 || words.length > 6) return false;
+      
+      // Must have at least one capital letter
+      if (!/[A-Z]/.test(str)) return false;
+      
+      // Common author patterns:
+      // "John Smith", "J. Smith", "John A. Smith", "Smith, John", "Dr. John Smith"
+      // Also handles: "Jr.", "Sr.", "III", etc.
+      
+      // Check if it looks like a name (has period for initials, or proper case words)
+      const hasInitial = /\b[A-Z]\.\s*/.test(str);
+      const hasProperCase = /^[A-Z][a-zá-ú]+/.test(str);
+      const hasSuffix = /\b(Jr\.?|Sr\.?|III|II|IV)\s*$/i.test(str);
+      
+      // If short (2-4 words) and has proper name characteristics
+      if (words.length <= 4 && (hasInitial || hasProperCase)) {
+        // Exclude obvious non-names
+        if (/^\d/.test(str)) return false;  // Starts with number
+        if (/^(the|a|an|el|la|los|las|un|una)\s/i.test(str)) return false;  // Starts with article
+        return true;
+      }
+      
+      // Longer strings with "&" or commas between names
+      if (words.length <= 6 && (str.includes('&') || str.includes(' y '))) {
+        return true;
+      }
+      
+      return false;
+    }
+
     function parseTocText(text) {
       const filterSubchapters = $("filter-subchapters").checked;
 
@@ -2332,13 +2396,31 @@
       let extractedEntries = [];
       let skippedNonMatches = 0;
 
-      if (format === "page-first") {
+      console.log("ToC format detected:", format, "from", lines.length, "lines");
+
+      if (format === "vertical") {
+        // Use vertical/stacked format parser
+        extractedEntries = parseVerticalFormat(lines);
+        skippedNonMatches = Math.max(0, lines.length - extractedEntries.length * 2);
+        console.log("Vertical format parsed:", extractedEntries.length, "entries");
+      } else if (format === "page-first") {
         const res = parsePageFirstFormat(lines);
         extractedEntries = res.entries;
         skippedNonMatches = res.skippedNonMatches;
       } else {
         extractedEntries = parsePageLastFormat(lines);
         skippedNonMatches = Math.max(0, lines.length - extractedEntries.length);
+      }
+      
+      // If we got very few entries, try vertical format as fallback
+      if (extractedEntries.length < 3 && format !== "vertical") {
+        console.log("Few entries found, trying vertical format as fallback...");
+        const verticalEntries = parseVerticalFormat(lines);
+        if (verticalEntries.length > extractedEntries.length) {
+          console.log("Vertical fallback found more entries:", verticalEntries.length);
+          extractedEntries = verticalEntries;
+          skippedNonMatches = Math.max(0, lines.length - extractedEntries.length * 2);
+        }
       }
 
       // Compute max Roman for fallback inference
@@ -2371,19 +2453,41 @@
         count: parsedCount,
         skippedSubchapters,
         skippedNonMatches,
-        entries: extractedEntries
+        entries: extractedEntries,
+        format: format
       };
     }
 
     function detectTocFormat(lines) {
       let pageFirstCount = 0;
       let pageLastCount = 0;
-      const sample = lines.slice(0, 40);
+      let standalonePageCount = 0;
+      const sample = lines.slice(0, 60);
+      
       for (const line of sample) {
-        if (/^\d+\s+\p{L}/u.test(line)) pageFirstCount++;
-        if (/\p{L}.*\s+\d+$/u.test(line)) pageLastCount++;
+        const trimmed = line.trim();
+        
+        // Page-first: "123 Title" or "xii Title"
+        if (/^(\d+|[ivxlcdm]+)\s+\p{L}/ui.test(trimmed)) pageFirstCount++;
+        
+        // Page-last (inline): "Title 123" or "Title xii"
+        if (/\p{L}.*\s{2,}(\d+|[ivxlcdm]+)\s*$/ui.test(trimmed)) pageLastCount++;
+        
+        // Standalone page number on its own line (vertical format signal)
+        if (/^(\d+|[ivxlcdm]+)$/i.test(trimmed)) standalonePageCount++;
       }
-      return pageFirstCount > pageLastCount ? "page-first" : "page-last";
+      
+      // If we see many standalone page numbers, it's likely vertical format
+      // Vertical format typically has page numbers on their own lines
+      if (standalonePageCount >= 5 && standalonePageCount > pageLastCount) {
+        return "vertical";
+      }
+      
+      if (pageFirstCount > pageLastCount) {
+        return "page-first";
+      }
+      
+      return "page-last";
     }
 
     function parsePageFirstFormat(lines) {
@@ -2467,6 +2571,116 @@
       return entries;
     }
 
+    // --- Vertical/Stacked ToC Format Parser ---
+    // Handles ToC layouts like:
+    //     Chapter Title
+    //         Author Name
+    //              Page Number (on its own line)
+    function parseVerticalFormat(lines) {
+      const entries = [];
+      let buffer = [];
+      let currentPart = null;
+      
+      // Part/Section header patterns
+      const partHeaderRe = /^(Parte?|Part|Teil|Section|Sección|Abschnitt)\s+([IVXLCDM]+|\d+)\s*$/i;
+      
+      // Page token pattern (standalone page number)
+      const pageTokenRe = /^(\d+|[ivxlcdm]+)$/i;
+      
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const trimmed = line.trim();
+        
+        if (!trimmed) continue;
+        
+        // Skip ToC headers
+        const lowerTrimmed = trimmed.toLowerCase();
+        if (lowerTrimmed === 'contenido' || lowerTrimmed === 'contents' || 
+            lowerTrimmed === 'table of contents' || lowerTrimmed === 'índice' ||
+            lowerTrimmed === 'inhalt' || lowerTrimmed === 'sommaire') {
+          continue;
+        }
+        
+        // Check for Part headers (track but don't emit as entries themselves)
+        if (partHeaderRe.test(trimmed)) {
+          currentPart = trimmed;
+          continue;
+        }
+        
+        // Check if this line is a standalone page number
+        if (pageTokenRe.test(trimmed)) {
+          const page = trimmed.toLowerCase();
+          
+          if (buffer.length > 0) {
+            // Determine title and author from buffer
+            let author = null;
+            let titleParts = [...buffer];
+            
+            // Check if last buffer item is an author name
+            if (buffer.length >= 2 && isLikelyAuthor(buffer[buffer.length - 1])) {
+              author = buffer[buffer.length - 1];
+              titleParts = buffer.slice(0, -1);
+            }
+            
+            // Join title parts
+            let title = titleParts.join(' ').replace(/\s+/g, ' ').trim();
+            
+            // Clean up the title
+            title = title.replace(/[._\-]+$/, '').trim();
+            
+            if (title) {
+              // Optionally include author in parentheses
+              const displayTitle = author ? `${title} (${author})` : title;
+              
+              entries.push({
+                title: displayTitle,
+                page: page,
+                rawTitle: title,
+                author: author,
+                part: currentPart
+              });
+            }
+          }
+          
+          buffer = [];
+          continue;
+        }
+        
+        // Check if this line has an inline page at the end (traditional format mixed in)
+        const inlineMatch = trimmed.match(/^(.+?)\s{2,}(\d+|[ivxlcdm]+)\s*$/i);
+        if (inlineMatch) {
+          const potentialTitle = inlineMatch[1].replace(/[._\s]+$/, '').trim();
+          const potentialPage = inlineMatch[2].toLowerCase();
+          
+          // Make sure it's a real title, not just noise
+          if (potentialTitle.length > 2 && /[a-zA-ZáéíóúñüÁÉÍÓÚÑÜ]/.test(potentialTitle)) {
+            // Combine with buffer if any
+            let fullTitle = buffer.length > 0 
+              ? buffer.join(' ') + ' ' + potentialTitle 
+              : potentialTitle;
+            
+            fullTitle = fullTitle.replace(/\s+/g, ' ').trim();
+            
+            entries.push({
+              title: fullTitle,
+              page: potentialPage,
+              rawTitle: fullTitle,
+              author: null,
+              part: currentPart
+            });
+            
+            buffer = [];
+            continue;
+          }
+        }
+        
+        // Otherwise, accumulate this line into buffer
+        buffer.push(trimmed);
+      }
+      
+      return entries;
+    }
+
     function cleanTitle(title) {
       let t = String(title || "").replace(/[._\-]+$/, "").replace(/\s{2,}/g, " ").trim();
       if (!t) return "";
@@ -2477,7 +2691,11 @@
     }
 
     function looksLikeSubchapter(title) {
-      const t = (title || "").trim();
+      let t = (title || "").trim();
+      
+      // Strip author in parentheses if present (from vertical format)
+      // e.g., "Chapter Title (Author Name)" -> "Chapter Title"
+      t = t.replace(/\s*\([^)]+\)\s*$/, '').trim();
       
       // 1. Numbered subchapters (1.1, 1.1.2, A.1, etc.) - definitely subchapters
       if (/^\s*\d+\.\d+(?:\.\d+)*\s+/.test(t)) return true;
@@ -2490,41 +2708,63 @@
       // 3. Structural entries that should always be kept (NOT subchapters)
       const structuralPatterns = [
         /^introduction$/i,
+        /^introducción$/i,
         /^conclusion/i,
+        /^conclusión/i,
         /^index$/i,
+        /^índice$/i,
         /^bibliography$/i,
+        /^bibliografía$/i,
         /^references$/i,
+        /^referencias$/i,
         /^appendix/i,
+        /^apéndice/i,
         /^acknowledgements?$/i,
+        /^agradecimientos$/i,
         /^preface$/i,
+        /^prefacio/i,
         /^foreword$/i,
+        /^prólogo$/i,
         /^prologue$/i,
         /^epilogue$/i,
+        /^epílogo$/i,
         /^list\s+of\s+/i,          // "List of Illustrations"
         /^about\s+the\s+author/i,
         /^notes$/i,
+        /^notas$/i,
         /^glossary$/i,
+        /^glosario$/i,
         /^abbreviations$/i,
+        /^abreviaturas$/i,
         /^suggested\s+reading$/i,
         /^further\s+reading$/i,
         /^selected\s+reading$/i,
+        /^serie\s+/i,              // "Prefacio de la Serie"
+        /^editors?\s+/i,           // "Prefacio de los Editores"
+        /^editores?\s+/i,
       ];
       
       for (const pattern of structuralPatterns) {
         if (pattern.test(t)) return false;
       }
       
-      // 4. Short entries (1-3 words) without chapter numbers are likely subchapters
+      // 4. Part/Section headers should be kept
+      if (/^(parte?|part|teil|section|sección)\s+/i.test(t)) return false;
+      
+      // 5. Short entries (1-3 words) without chapter numbers are likely subchapters
       // e.g., "Arctic", "Sub-Arctic", "Plains", "Spain", "France"
+      // BUT: longer chapter titles from vertical format should be kept
       const words = t.split(/\s+/).filter(w => w.length > 0);
-      if (words.length <= 3) {
+      if (words.length <= 2) {
         // But allow if it looks like a chapter title with "Chapter" prefix
         if (/^chapter\s+/i.test(t)) return false;
-        // Short entries without numbering are subchapters
-        return true;
+        if (/^capítulo\s+/i.test(t)) return false;
+        // Very short entries might be subchapters, but be conservative
+        // Only flag as subchapter if it's a single generic word
+        if (words.length === 1 && t.length < 15) return true;
       }
       
-      // 5. Entries that are clearly subsections by pattern
+      // 6. Entries that are clearly subsections by pattern
       // e.g., "Protestantism in the West", "Catholicism in the West"
       // These often share common suffixes within a chapter
       // This is harder to detect without context, so we'll be conservative

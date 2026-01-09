@@ -537,6 +537,156 @@
     const CLOUD_OCR_URL = "https://toc-ocr-482285058910.us-west3.run.app";
 
     // =====================================================
+    // SMART TOC PIPELINE (Outline -> Text Layer -> OCR)
+    // =====================================================
+
+    async function flattenOutlineItems(items, out = []) {
+      for (const it of (items || [])) {
+        out.push(it);
+        if (it.items && it.items.length) await flattenOutlineItems(it.items, out);
+      }
+      return out;
+    }
+
+    async function resolveOutlineItemPageNumber(pdfDoc, item) {
+      try {
+        let dest = item.dest;
+        if (!dest) return null;
+
+        // dest may be a named destination string
+        if (typeof dest === "string") {
+          dest = await pdfDoc.getDestination(dest);
+          if (!dest) return null;
+        }
+
+        // dest may be an explicit destination array, first element is ref or page object
+        const ref = Array.isArray(dest) ? dest[0] : null;
+        if (!ref) return null;
+
+        const pageIndex = await pdfDoc.getPageIndex(ref);
+        return pageIndex + 1; // PDF.js pages are 1 based in getPage, outline index is 0 based
+      } catch {
+        return null;
+      }
+    }
+
+    function outlineLooksSane(entries) {
+      if (!entries || entries.length < 5) return false;
+      const withPages = entries.filter(e => Number.isFinite(e.page));
+      if (withPages.length < Math.min(10, entries.length * 0.5)) return false;
+      return true;
+    }
+
+    async function parseTocViaOutline({ pdfDoc }) {
+      const outline = await pdfDoc.getOutline();
+      if (!outline || !outline.length) return null;
+
+      const flat = await flattenOutlineItems(outline);
+      const entries = [];
+
+      for (const it of flat) {
+        const title = (it.title || "").replace(/\s+/g, " ").trim();
+        if (!title) continue;
+
+        const page = await resolveOutlineItemPageNumber(pdfDoc, it);
+        if (!page) continue;
+
+        entries.push({ title, page });
+      }
+
+      if (!outlineLooksSane(entries)) return null;
+
+      // Match your backend response shape so the UI can reuse rendering
+      const raw_text = entries.map(e => `${e.title}\t${e.page}`).join("\n");
+      return {
+        engine: "pdf_outline",
+        raw_text,
+        text: raw_text,
+        entries
+      };
+    }
+
+    async function extractPageLines(page) {
+      const tc = await page.getTextContent({ normalizeWhitespace: true });
+      const items = tc.items || [];
+
+      const yBin = 3;
+      const lineMap = new Map();
+
+      for (const it of items) {
+        const str = (it.str || "").trim();
+        if (!str) continue;
+
+        const x = (it.transform && it.transform[4]) ? it.transform[4] : 0;
+        const y = (it.transform && it.transform[5]) ? it.transform[5] : 0;
+
+        const key = Math.round(y / yBin);
+        if (!lineMap.has(key)) lineMap.set(key, []);
+        lineMap.get(key).push({ x, str });
+      }
+
+      const keys = Array.from(lineMap.keys()).sort((a, b) => b - a);
+      const lines = [];
+
+      for (const k of keys) {
+        const parts = lineMap.get(k)
+          .sort((a, b) => a.x - b.x)
+          .map(p => p.str);
+
+        const line = parts.join(" ").replace(/\s+/g, " ").trim();
+        if (line) lines.push(line);
+      }
+      return lines;
+    }
+
+    function textLayerLooksReal(lines) {
+      const charCount = lines.reduce((n, s) => n + ((s && s.length) || 0), 0);
+      return lines.length >= 20 && charCount >= 200;
+    }
+
+    async function parseTocViaTextLayer({ pdfDoc, tocPages, apiBaseUrl }) {
+      const allLines = [];
+
+      for (const p of tocPages) {
+        const page = await pdfDoc.getPage(p);
+        const lines = await extractPageLines(page);
+        allLines.push(...lines, "");
+      }
+
+      if (!textLayerLooksReal(allLines)) return null;
+
+      const res = await fetch(`${apiBaseUrl}/parse-toc-lines`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lines: allLines })
+      });
+
+      if (!res.ok) throw new Error(await res.text());
+      return await res.json();
+    }
+
+    async function extractTocSmart({ pdfDoc, tocPages, apiBaseUrl }) {
+      console.log("ToC pipeline start");
+
+      const outline = await parseTocViaOutline({ pdfDoc });
+      if (outline) {
+        console.log("ToC pipeline used outline");
+        return outline;
+      }
+
+      const textLayer = await parseTocViaTextLayer({ pdfDoc, tocPages, apiBaseUrl });
+      if (textLayer && textLayer.entries && textLayer.entries.length) {
+        console.log("ToC pipeline used text layer", {
+          lines: (textLayer.raw_text || "").split("\n").length
+        });
+        return textLayer;
+      }
+
+      console.log("ToC pipeline falling back to OCR");
+      return null; // your existing OCR path runs when this returns null
+    }
+
+    // =====================================================
     // TEXT LAYER EXTRACTION (Path A - preferred for born-digital PDFs)
     // =====================================================
     
@@ -579,78 +729,6 @@
       return { tokens, width: viewport.width, height: viewport.height };
     }
     
-    /**
-     * Check if the text layer has enough content to be useful
-     */
-    function textLayerLooksReal(tokens) {
-      const charCount = tokens.reduce((n, t) => n + t.text.length, 0);
-      // Need at least 30 tokens and 200 characters
-      return tokens.length >= 30 && charCount >= 200;
-    }
-    
-    /**
-     * Parse ToC using PDF text layer (no OCR needed)
-     * Returns null if text layer is insufficient, triggering OCR fallback
-     */
-    async function parseTocViaTextLayer(pdf, tocPages, statusEl) {
-      const allTokens = [];
-      let pageW = null;
-      let pageH = null;
-      
-      for (const p of tocPages) {
-        if (statusEl) statusEl.textContent = `Extracting text layer from page ${p}...`;
-        
-        const { tokens, width, height } = await extractTextLayerTokens(pdf, p, 1.0);
-        
-        if (!textLayerLooksReal(tokens)) {
-          console.log(`Text layer on page ${p} looks thin (${tokens.length} tokens), will use OCR`);
-          return null; // Signal to use OCR fallback
-        }
-        
-        allTokens.push(...tokens);
-        pageW = width;
-        pageH = height;
-      }
-      
-      if (!allTokens.length || !pageW) {
-        return null;
-      }
-      
-      if (statusEl) statusEl.textContent = "Parsing text layer...";
-      
-      // Call the backend parser with the tokens
-      const res = await fetch(`${CLOUD_OCR_URL}/parse-toc-tokens`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          tokens: allTokens, 
-          img_w: pageW, 
-          img_h: pageH 
-        })
-      });
-      
-      if (!res.ok) {
-        console.warn("Text layer parsing failed:", await res.text());
-        return null;
-      }
-      
-      const data = await res.json();
-      
-      // Debug logging
-      console.log("=== TEXT LAYER RESPONSE ===");
-      console.log("Source:", data.source);
-      console.log("Token count:", data.debug?.token_count);
-      console.log("Number of entries:", data.entries?.length || 0);
-      if (data.entries) {
-        data.entries.forEach((e, i) => {
-          console.log(`Entry ${i + 1}: "${e.title?.substring(0, 80)}${e.title?.length > 80 ? '...' : ''}" → page ${e.page}`);
-        });
-      }
-      console.log("=== END TEXT LAYER RESPONSE ===");
-      
-      return data;
-    }
-
     // =====================================================
     // OCR PATH (Path B - fallback for scanned PDFs)
     // =====================================================
@@ -691,33 +769,13 @@
       if (statusEl) statusEl.textContent = "Checking PDF text layer...";
       
       try {
-        const textLayerResult = await parseTocViaTextLayer(pdfDoc, tocPages, statusEl);
+        // We keep this for backward compatibility or specific token-based parsing needs,
+        // but the new Smart Pipeline handles text layer via /parse-toc-lines now.
+        // This function is now mostly a fallback for OCR.
+        const { tokens, width, height } = await extractTextLayerTokens(pdfDoc, tocPages[0], 1.0);
         
-        if (textLayerResult && Array.isArray(textLayerResult.entries) && textLayerResult.entries.length >= 3) {
-          // Text layer worked! Use these results
-          const raw = textLayerResult.raw_text || textLayerResult.text || "";
-          setRawToc(raw);
-          
-          isBulkEdit = true;
-          resetChapterList();
-          for (const e of textLayerResult.entries) {
-            addChapterWithData(e.title, e.page);
-          }
-          isBulkEdit = false;
-          saveState();
-          
-          if (statusEl) {
-            statusEl.className = "status-box success";
-            statusEl.textContent = `Text layer: extracted ${textLayerResult.entries.length} entries (no OCR needed)`;
-          }
-          validateAllChapters();
-          return;
-        }
-        
-        // Text layer didn't return enough entries, fall through to OCR
-        if (textLayerResult) {
-          console.log("Text layer returned only", textLayerResult.entries?.length || 0, "entries, trying OCR...");
-        }
+        // If we are here, it means the Smart Pipeline failed or wasn't used, 
+        // so we proceed to OCR.
       } catch (e) {
         console.warn("Text layer extraction failed:", e);
         // Fall through to OCR
@@ -906,6 +964,18 @@
 
     function pageTokenToPdfIndex(token, options = {}) {
       const { allowRawPdfPage = false } = options;
+      const raw = String(token || "").trim();
+
+      // Check for explicit PDF page prefix (e.g. "pdf:12")
+      const m = raw.match(/^pdf\s*:\s*(\d+)$/i);
+      if (m) {
+        const pdfPage = parseInt(m[1], 10);
+        if (Number.isFinite(pdfPage) && pdfPage >= 1 && pdfPage <= totalPages) {
+          return { index: pdfPage - 1, isRawPdfPage: true };
+        }
+        return null;
+      }
+
       const t = normalizePageToken(token).toLowerCase();
       if (!t) {
         return null;
@@ -1298,6 +1368,50 @@
       status.classList.remove("hidden");
 
       try {
+        // --- SMART PIPELINE START ---
+        const tocPages = [];
+        for (let p = startPage; p <= endPage; p++) tocPages.push(p);
+
+        const smartResult = await extractTocSmart({ 
+            pdfDoc, 
+            tocPages, 
+            apiBaseUrl: CLOUD_OCR_URL 
+        });
+        
+        if (smartResult) {
+            const raw = smartResult.raw_text || smartResult.text || "";
+            setRawToc(raw);
+            
+            if (Array.isArray(smartResult.entries) && smartResult.entries.length > 0) {
+                isBulkEdit = true;
+                resetChapterList();
+                for (const e of smartResult.entries) {
+                    const pageToken = smartResult.engine === "pdf_outline"
+                        ? `pdf:${e.page}`
+                        : String(e.page ?? "");
+                    addChapterWithData(e.title, pageToken);
+                }
+                isBulkEdit = false;
+                saveState();
+                
+                status.className = "status-box success";
+                status.textContent = `Smart Pipeline: extracted ${smartResult.entries.length} entries via ${smartResult.engine}`;
+                validateAllChapters();
+                
+                // Try to find Introduction from parsed entries
+                const tocBasedStart = findMainContentStartFromTocEntries(smartResult.entries);
+                if (tocBasedStart) {
+                    mainContentStartPdfPage = tocBasedStart;
+                    updateFrontMatterDisplay();
+                }
+                
+                return; // Success!
+            }
+        }
+        // --- SMART PIPELINE END ---
+
+        // Fallback to existing logic if smart pipeline failed or returned no entries
+        
         // Extract structured lines first
         let linesObj = await extractLinesObjFromRange(startPage, endPage, status);
 

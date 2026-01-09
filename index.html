@@ -645,23 +645,41 @@
     }
 
     async function parseTocViaTextLayer({ pdfDoc, tocPages, apiBaseUrl }) {
-      const allLines = [];
+      const allTokens = [];
+      let img_w = 0;
+      let img_h = 0;
 
       for (const p of tocPages) {
-        const page = await pdfDoc.getPage(p);
-        const lines = await extractPageLines(page);
-        allLines.push(...lines, "");
+        // Use existing helper: extractTextLayerTokens(pdf, pageNum, scale)
+        // This helper returns { tokens, width, height }
+        const r = await extractTextLayerTokens(pdfDoc, p, 1.0);
+        
+        if (r && r.tokens) {
+            allTokens.push(...r.tokens);
+            img_w = Math.max(img_w, r.width || 0);
+            img_h = Math.max(img_h, r.height || 0);
+        }
       }
 
-      if (!textLayerLooksReal(allLines)) return null;
+      if (!allTokens.length || !img_w) return null;
 
-      const res = await fetch(`${apiBaseUrl}/parse-toc-lines`, {
+      const res = await fetch(`${apiBaseUrl}/parse-toc-tokens`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lines: allLines })
+        body: JSON.stringify({
+          tokens: allTokens,
+          img_w,
+          img_h
+        })
       });
 
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) {
+        const msg = await res.text();
+        // If the endpoint is missing for some reason, fall back to OCR instead of hard failing
+        if (res.status === 404) return null;
+        throw new Error(msg);
+      }
+
       return await res.json();
     }
 

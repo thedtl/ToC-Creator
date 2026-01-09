@@ -346,19 +346,37 @@
   <div class="card hidden" id="step2">
     <h2><span class="step-number">2</span> Page Offset</h2>
     <p style="color: #666; font-size: 0.9em; margin-bottom: 15px;">
-      Find the PDF page that shows the book's "Page 1" (not the cover or table of contents).
+      Configure how book/journal page numbers map to PDF pages.
     </p>
 
     <div style="display: flex; gap: 20px; flex-wrap: wrap;">
       <div style="flex: 1; min-width: 250px;">
-        <label>Book Page 1 is on PDF Page:</label>
-        <div style="display: flex; gap: 8px; align-items: center;">
-          <input type="number" id="page-offset" value="1" min="1" style="width: 80px; margin-bottom: 0;">
-          <button id="set-offset-to-preview" class="secondary" style="padding: 5px 8px; font-size: 0.8em;" title="Set offset to current preview page">← Use Current</button>
-          <button id="reset-offset" class="secondary" style="padding: 5px 8px; font-size: 0.8em;" title="Reset to 1 (no front matter)">Reset to 1</button>
+        <div>
+          <label>Page 1 appears on PDF page:</label>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <input type="number" id="page-offset" value="1" min="1" style="width: 80px; margin-bottom: 0;">
+            <button id="set-offset-to-preview" class="secondary" style="padding: 5px 8px; font-size: 0.8em;" title="Set to current preview page">← Use Current</button>
+            <button id="reset-offset" class="secondary" style="padding: 5px 8px; font-size: 0.8em;" title="Reset to 1">Reset</button>
+          </div>
         </div>
-        <p style="font-size: 0.8em; color: #888; margin-top: 8px;">
-          Everything before this will be bookmarked as "Front Matter"
+        
+        <div style="margin-top: 12px;">
+          <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; font-size: 0.9em; cursor: pointer;">
+            <input type="checkbox" id="custom-first-page-toggle" style="width: auto; margin: 0;">
+            Document starts on a page other than 1 (e.g., journal starting at page 407)
+          </label>
+        </div>
+        
+        <div id="custom-first-page-section" style="display: none; margin-top: 10px; padding: 10px; background: #fefce8; border: 1px solid #fef08a; border-radius: 6px;">
+          <label style="font-size: 0.9em;">First page number in document:</label>
+          <div style="display: flex; gap: 8px; align-items: center; margin-top: 4px;">
+            <input type="number" id="first-page-number" value="1" min="1" style="width: 100px; margin-bottom: 0;">
+            <span style="font-size: 0.8em; color: #854d0e;">e.g., 407 for a journal issue</span>
+          </div>
+        </div>
+        
+        <p style="font-size: 0.8em; color: #888; margin-top: 12px;">
+          Everything before this page will be bookmarked as "Front Matter"
         </p>
       </div>
 
@@ -390,6 +408,43 @@
   <div class="card hidden" id="step3">
     <h2><span class="step-number">3</span> Table of Contents</h2>
 
+    <!-- Format selector -->
+    <div style="background: #fefce8; border: 1px solid #fef08a; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+      <div style="display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start;">
+        <div style="flex: 1; min-width: 220px;">
+          <label style="font-weight: 600; margin-bottom: 6px; display: block;">ToC Format:</label>
+          <select id="toc-format-select" style="width: 100%;">
+            <option value="auto">Auto-detect (best guess)</option>
+            <option value="page-last">Traditional (Title.....Page)</option>
+            <option value="page-first">Page-first (Page Title)</option>
+            <option value="multiline">Multi-line (Title spans lines, Page at end)</option>
+            <option value="vertical">Vertical/Centered (Title, Author, Page on separate lines)</option>
+            <option value="chapters-only">Chapters only (ignore indented subsections)</option>
+            <option value="part-chapter">Part + Chapter (ignore Part headers, extract chapters)</option>
+            <option value="manual">Manual (Tab-separated: Title[TAB]Page)</option>
+          </select>
+        </div>
+        
+        <div style="flex: 1; min-width: 220px;">
+          <label style="font-weight: 600; margin-bottom: 6px; display: block;">Options:</label>
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            <label style="display: flex; align-items: center; gap: 6px; font-weight: normal; font-size: 0.9em;">
+              <input type="checkbox" id="filter-subchapters" style="width: auto; margin: 0;">
+              Filter numbered subchapters (1.1, A.2)
+            </label>
+            <label style="display: flex; align-items: center; gap: 6px; font-weight: normal; font-size: 0.9em;">
+              <input type="checkbox" id="include-authors" checked style="width: auto; margin: 0;">
+              Include detected authors in title
+            </label>
+          </div>
+        </div>
+      </div>
+      
+      <div id="format-description" style="font-size: 0.85em; color: #854d0e; margin-top: 12px; padding: 8px; background: #fef9c3; border-radius: 4px;">
+        <strong>Auto-detect:</strong> Analyzes the ToC and picks the best parser. Override if results aren't right.
+      </div>
+    </div>
+
     <!-- Primary: Extract from PDF -->
     <div style="background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
       <div style="font-weight: 600; margin-bottom: 10px; color: #0369a1;">📄 Extract ToC from PDF</div>
@@ -412,13 +467,6 @@
         <button id="set-toc-current-btn" class="secondary" style="padding: 8px 12px; font-size: 0.85em;">Set to current page</button>
         <button id="extract-btn" class="success" style="padding: 8px 16px;">Extract & Parse ToC</button>
         <span id="page-range-hint" style="font-size: 0.85em; color: #666;"></span>
-      </div>
-
-      <div style="margin-top: 12px; display: flex; flex-direction: column; gap: 8px;">
-        <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85em; color: #666;">
-          <input type="checkbox" id="filter-subchapters" checked style="width: auto; margin: 0;">
-          Skip subchapters (indented entries, 1.1, etc.)
-        </label>
       </div>
 
       <div id="extract-status" class="status-box hidden" style="margin-top: 10px;"></div>
@@ -999,22 +1047,27 @@
         return null;
       }
 
-      // Arabic
+      // Get offset values
+      const firstPageNum = safeParseInt($("first-page-number").value) || 1;
+      const contentStartPdf = safeParseInt(pageOffsetInput.value) || 1;
+
+      // Arabic numerals
       if (/^\d+$/.test(t)) {
         const pageNum = safeParseInt(t);
         if (!Number.isFinite(pageNum) || pageNum < 1) {
           return null;
         }
         
-        const pageOffset = safeParseInt(pageOffsetInput.value) || 1;
-        const pdfIndex = (pageNum - 1) + (pageOffset - 1);
+        // Calculate PDF index:
+        // pdf_index = (page_num - first_page_num) + (content_start_pdf - 1)
+        const pdfIndex = (pageNum - firstPageNum) + (contentStartPdf - 1);
         
-        // Check if valid with offset applied
+        // Check if valid
         if (pdfIndex >= 0 && pdfIndex < totalPages) {
           return pdfIndex;
         }
         
-        // If offset calculation fails, check if it's a raw PDF page number
+        // If calculation fails, check if it might be a raw PDF page
         const rawPdfIndex = pageNum - 1;
         if (rawPdfIndex >= 0 && rawPdfIndex < totalPages) {
           return { index: rawPdfIndex, isRawPdfPage: true };
@@ -1023,19 +1076,22 @@
         return null;
       }
 
-      // Roman
+      // Roman numerals (for front matter - these come BEFORE firstPageNum)
       if (isRomanNumeralToken(t)) {
         // 1) exact label match, best if available
         if (pageLabelIndexByLabel && pageLabelIndexByLabel.has(t)) {
           return pageLabelIndexByLabel.get(t);
         }
 
-        // 2) infer using ToC max Roman, assumes max Roman page is right before Arabic 1
+        // 2) infer using ToC max Roman
         const rv = romanToInt(t);
-        const pageOffset = safeParseInt(pageOffsetInput.value) || 1;
-
-        if (Number.isFinite(rv) && rv > 0 && detectedMaxRoman > 0 && pageOffset > 1) {
-          const pdfIndex = (pageOffset - detectedMaxRoman + rv - 2);
+        
+        // Roman numerals are typically front matter, before the first numbered page
+        // If content starts at PDF page 5 with page 407, roman numerals are pages 1-4
+        if (Number.isFinite(rv) && rv > 0 && detectedMaxRoman > 0 && contentStartPdf > 1) {
+          // Roman numerals map to PDF pages before contentStartPdf
+          // e.g., if contentStartPdf=5 and maxRoman=4, then i=0, ii=1, iii=2, iv=3
+          const pdfIndex = contentStartPdf - detectedMaxRoman + rv - 2;
           return (pdfIndex >= 0 && pdfIndex < totalPages) ? pdfIndex : null;
         }
         
@@ -2367,7 +2423,8 @@
         'conclusión', 'conclusion', 'epílogo', 'epilogue', 'bibliografía', 'bibliography',
         'referencias', 'references', 'índice', 'index', 'apéndice', 'appendix',
         'agradecimientos', 'acknowledgements', 'contenido', 'contents',
-        'parte', 'part', 'chapter', 'capítulo', 'section', 'sección'
+        'parte', 'part', 'chapter', 'capítulo', 'section', 'sección',
+        'original research', 'articles'
       ];
       for (const kw of structuralKeywords) {
         if (structuralLower.includes(kw)) return false;
@@ -2378,6 +2435,9 @@
       
       // If it contains " y " (Spanish "and") between capitalized words
       if (/[A-Z][a-zá-ú]+.*\s+y\s+.*[A-Z][a-zá-ú]+/.test(str)) return true;
+      
+      // If it contains " and " between capitalized words (English)
+      if (/[A-Z][a-zá-ú]+.*\s+and\s+.*[A-Z][a-zá-ú]+/i.test(str)) return true;
       
       // Typical author pattern: 2-5 words, has capitals, may have periods (initials)
       const words = str.split(/\s+/);
@@ -2403,8 +2463,8 @@
         return true;
       }
       
-      // Longer strings with "&" or commas between names
-      if (words.length <= 6 && (str.includes('&') || str.includes(' y '))) {
+      // Longer strings with "&" or " and " between names
+      if (words.length <= 6 && (str.includes('&') || str.includes(' y ') || /\s+and\s+/i.test(str))) {
         return true;
       }
       
@@ -2413,6 +2473,8 @@
 
     function parseTocText(text) {
       const filterSubchapters = $("filter-subchapters").checked;
+      const includeAuthors = $("include-authors").checked;
+      const selectedFormat = $("toc-format-select").value;
 
       if (PARSE_BEHAVIOR.replaceExistingList) {
         resetChapterListAndHistory();
@@ -2430,35 +2492,65 @@
         .map(l => l.replace(/\.{2,}/g, " ").replace(/\s{2,}/g, " ").trim())
         .map(l => fixSpacedPageNumbers(l));  // Fix OCR spacing in page numbers
 
-      const format = detectTocFormat(lines);
+      let format = selectedFormat;
       let extractedEntries = [];
       let skippedNonMatches = 0;
 
-      console.log("ToC format detected:", format, "from", lines.length, "lines");
+      // Auto-detect if needed
+      if (format === "auto") {
+        format = detectTocFormat(lines);
+        console.log("Auto-detected format:", format);
+      }
 
-      if (format === "vertical") {
-        // Use vertical/stacked format parser
-        extractedEntries = parseVerticalFormat(lines);
-        skippedNonMatches = Math.max(0, lines.length - extractedEntries.length * 2);
-        console.log("Vertical format parsed:", extractedEntries.length, "entries");
-      } else if (format === "page-first") {
-        const res = parsePageFirstFormat(lines);
-        extractedEntries = res.entries;
-        skippedNonMatches = res.skippedNonMatches;
-      } else {
-        extractedEntries = parsePageLastFormat(lines);
-        skippedNonMatches = Math.max(0, lines.length - extractedEntries.length);
+      console.log("Using ToC format:", format, "on", lines.length, "lines");
+
+      // Parse based on format
+      switch (format) {
+        case "page-first":
+          const res = parsePageFirstFormat(lines);
+          extractedEntries = res.entries;
+          skippedNonMatches = res.skippedNonMatches;
+          break;
+          
+        case "vertical":
+          extractedEntries = parseVerticalFormat(lines);
+          skippedNonMatches = Math.max(0, lines.length - extractedEntries.length * 2);
+          break;
+          
+        case "multiline":
+          extractedEntries = parsePageLastFormat(lines);  // Already handles multi-line
+          skippedNonMatches = Math.max(0, lines.length - extractedEntries.length);
+          break;
+          
+        case "chapters-only":
+          extractedEntries = parseChaptersOnlyFormat(lines);
+          skippedNonMatches = Math.max(0, lines.length - extractedEntries.length);
+          break;
+          
+        case "part-chapter":
+          extractedEntries = parsePartChapterFormat(lines);
+          skippedNonMatches = Math.max(0, lines.length - extractedEntries.length);
+          break;
+          
+        case "manual":
+          extractedEntries = parseManualFormat(lines);
+          skippedNonMatches = Math.max(0, lines.length - extractedEntries.length);
+          break;
+          
+        case "page-last":
+        default:
+          extractedEntries = parsePageLastFormat(lines);
+          skippedNonMatches = Math.max(0, lines.length - extractedEntries.length);
+          break;
       }
       
-      // If we got very few entries, try vertical format as fallback
-      if (extractedEntries.length < 3 && format !== "vertical") {
-        console.log("Few entries found, trying vertical format as fallback...");
-        const verticalEntries = parseVerticalFormat(lines);
-        if (verticalEntries.length > extractedEntries.length) {
-          console.log("Vertical fallback found more entries:", verticalEntries.length);
-          extractedEntries = verticalEntries;
-          skippedNonMatches = Math.max(0, lines.length - extractedEntries.length * 2);
-        }
+      // Strip authors if not wanted
+      if (!includeAuthors) {
+        extractedEntries = extractedEntries.map(e => {
+          // Remove author in parentheses at end
+          const title = (e.title || "").replace(/\s*\([^)]+\)\s*$/, '').trim();
+          return { ...e, title };
+        });
       }
 
       // Compute max Roman for fallback inference
@@ -2500,10 +2592,26 @@
       let pageFirstCount = 0;
       let pageLastCount = 0;
       let standalonePageCount = 0;
-      const sample = lines.slice(0, 60);
+      let partHeaderCount = 0;
+      let numberedChapterCount = 0;
+      let chapterWordCount = 0;
+      let multiLineSignals = 0;
       
-      for (const line of sample) {
-        const trimmed = line.trim();
+      const sample = lines.slice(0, 80);
+      
+      // Part header patterns
+      const partHeaderRe = /^(Part|Parte|Teil|Partie|Section|Sección)\s+(\d+|[IVXLCDM]+|One|Two|Three|Four|Five|Six|Seven|Eight|Nine|Ten)\b/i;
+      
+      // Chapter patterns
+      const chapterWordRe = /^(Chapter|Capítulo|Chapitre|Kapitel)\s+(\d+|[IVXLCDM]+)/i;
+      const numberedChapterRe = /^(\d{1,2})\.\s+[A-Z]/;
+      
+      // Subsection patterns (high numbers like 126., 127.)
+      const subsectionRe = /^\d{3,}\.\s+/;
+      
+      for (let i = 0; i < sample.length; i++) {
+        const trimmed = sample[i].trim();
+        if (!trimmed) continue;
         
         // Page-first: "123 Title" or "xii Title"
         if (/^(\d+|[ivxlcdm]+)\s+\p{L}/ui.test(trimmed)) pageFirstCount++;
@@ -2513,14 +2621,60 @@
         
         // Standalone page number on its own line (vertical format signal)
         if (/^(\d+|[ivxlcdm]+)$/i.test(trimmed)) standalonePageCount++;
+        
+        // Part headers
+        if (partHeaderRe.test(trimmed)) partHeaderCount++;
+        
+        // Chapter with word "Chapter"
+        if (chapterWordRe.test(trimmed)) chapterWordCount++;
+        
+        // Numbered chapters (1., 2., etc. but not 126.)
+        if (numberedChapterRe.test(trimmed) && !subsectionRe.test(trimmed)) numberedChapterCount++;
+        
+        // Multi-line signal: line with page number followed by line without
+        if (/\s{2,}(\d+|[ivxlcdm]+)\s*$/i.test(trimmed) && i + 1 < sample.length) {
+          const nextLine = sample[i + 1].trim();
+          if (nextLine && !/(\d+|[ivxlcdm]+)\s*$/i.test(nextLine) && !/^(\d+|[ivxlcdm]+)$/i.test(nextLine)) {
+            multiLineSignals++;
+          }
+        }
       }
       
-      // If we see many standalone page numbers, it's likely vertical format
-      // Vertical format typically has page numbers on their own lines
-      if (standalonePageCount >= 5 && standalonePageCount > pageLastCount) {
+      console.log("Format detection:", {
+        pageFirstCount, pageLastCount, standalonePageCount,
+        partHeaderCount, numberedChapterCount, chapterWordCount, multiLineSignals
+      });
+      
+      // Decision logic
+      
+      // Vertical: standalone page numbers on their own lines
+      // Lower threshold and check ratio of standalone to total entries
+      const standaloneRatio = standalonePageCount / Math.max(1, pageLastCount + standalonePageCount);
+      if (standalonePageCount >= 3 && standaloneRatio > 0.3) {
         return "vertical";
       }
       
+      // If we see Part headers, use part-chapter format
+      if (partHeaderCount >= 2) {
+        return "part-chapter";
+      }
+      
+      // If we see numbered chapters with subsections (high numbers), use chapters-only
+      if (numberedChapterCount >= 2 && sample.some(l => subsectionRe.test(l.trim()))) {
+        return "chapters-only";
+      }
+      
+      // If we see "Chapter 1" style entries
+      if (chapterWordCount >= 2) {
+        return "part-chapter";  // This parser handles "Chapter N:" format well
+      }
+      
+      // If many multi-line signals (page-last entries with continuation lines)
+      if (multiLineSignals >= 2 && pageLastCount > 0 && multiLineSignals >= pageLastCount * 0.25) {
+        return "multiline";
+      }
+      
+      // Standard page-first vs page-last
       if (pageFirstCount > pageLastCount) {
         return "page-first";
       }
@@ -2554,58 +2708,70 @@
 
     function parsePageLastFormat(lines) {
       const entries = [];
-      let buffer = '';
-      let chapterPrefix = '';
-      let sectionPrefix = '';
-
-      const chapterMarkerPattern = /^(chapter|capítulo|capitulo|chapitre|kapitel|capitolo|parte|part|teil|section|sección|seccion)\s*(\d+)\.?$/i;
-      const sectionHeaderPattern = /^(introducción|introduction|conclusión|conclusion|apéndices|appendices|prefacio|preface)$/i;
-
-      for (const line of lines) {
-        const trimmedLine = line.trim();
-
-        if (PARSE_BEHAVIOR.prefixSectionHeaders && sectionHeaderPattern.test(trimmedLine)) {
-          sectionPrefix = trimmedLine.replace(/\.?$/, '');
-          continue;
-        }
-
-        const chapterMatch = trimmedLine.match(chapterMarkerPattern);
-        if (chapterMatch) {
-          chapterPrefix = trimmedLine.replace(/\.?$/, '');
-          continue;
-        }
-
-        const standaloneMatch = trimmedLine.match(/^(\d+|[ivxlcdm]+)\.?$/i);
-        if (standaloneMatch) {
-          if (buffer || chapterPrefix || sectionPrefix) {
-            const pageToken = normalizePageToken(standaloneMatch[1]);
-            let fullTitle = buffer || '';
-            if (chapterPrefix) fullTitle = chapterPrefix + (fullTitle ? ': ' + fullTitle : '');
-            if (sectionPrefix) fullTitle = sectionPrefix + (fullTitle ? ': ' + fullTitle : '');
-            entries.push({ title: cleanTitle(fullTitle), page: pageToken });
-            buffer = ''; chapterPrefix = ''; sectionPrefix = '';
+      let i = 0;
+      
+      // Regex to match line ending with a page number (with possible whitespace)
+      const pageLastRe = /^(.+?)\s{2,}(\d+|[ivxlcdm]+)\s*$/i;
+      
+      while (i < lines.length) {
+        const line = lines[i];
+        const match = line.match(pageLastRe);
+        
+        if (match) {
+          // Found a line with a page number at the end
+          let titleParts = [match[1].trim()];
+          const page = match[2].toLowerCase();
+          
+          // Look ahead for continuation lines (no page number at end)
+          let j = i + 1;
+          while (j < lines.length) {
+            const nextLine = lines[j].trim();
+            if (!nextLine) {
+              j++;
+              continue;
+            }
+            
+            // If this line has a page number at the end, it's a new entry
+            if (pageLastRe.test(nextLine)) {
+              break;
+            }
+            
+            // If this line is a standalone page number, it's vertical format mixed in
+            if (/^(\d+|[ivxlcdm]+)$/i.test(nextLine)) {
+              break;
+            }
+            
+            // Otherwise, it's a continuation line
+            titleParts.push(nextLine);
+            j++;
           }
-          continue;
-        }
-
-        const inlineMatch = trimmedLine.match(/^(.+?)\s+(\d+|[ivxlcdm]+)$/i);
-        if (inlineMatch) {
-          const potentialTitle = inlineMatch[1];
-          const potentialPage = inlineMatch[2];
-          const titleWithoutTrailing = potentialTitle.replace(/[._\-\s]+$/, '').trim();
-          if (titleWithoutTrailing.length > 0 && /[a-zA-ZáéíóúñüÁÉÍÓÚÑÜ]/.test(titleWithoutTrailing)) {
-            const combinedTitle = buffer ? buffer + ' ' + titleWithoutTrailing : titleWithoutTrailing;
-            let fullTitle = combinedTitle;
-            if (chapterPrefix) fullTitle = chapterPrefix + ': ' + fullTitle;
-            if (sectionPrefix) fullTitle = sectionPrefix + ': ' + fullTitle;
-            const pageToken = normalizePageToken(potentialPage);
-            entries.push({ title: cleanTitle(fullTitle), page: pageToken });
-            buffer = ''; chapterPrefix = ''; sectionPrefix = '';
-            continue;
+          
+          // Process collected lines: last line might be author
+          let author = null;
+          if (titleParts.length >= 2) {
+            const lastPart = titleParts[titleParts.length - 1];
+            if (isLikelyAuthor(lastPart)) {
+              author = lastPart;
+              titleParts = titleParts.slice(0, -1);
+            }
           }
+          
+          // Join title parts
+          let title = titleParts.join(' ').replace(/\s+/g, ' ').trim();
+          title = cleanTitle(title);
+          
+          if (title) {
+            const displayTitle = author ? `${title} (${author})` : title;
+            entries.push({ title: displayTitle, page: page });
+          }
+          
+          i = j;
+        } else {
+          // Line doesn't have a page number - skip it or it's orphaned
+          i++;
         }
-        buffer = buffer ? buffer + ' ' + trimmedLine : trimmedLine;
       }
+      
       return entries;
     }
 
@@ -2714,6 +2880,218 @@
         
         // Otherwise, accumulate this line into buffer
         buffer.push(trimmed);
+      }
+      
+      return entries;
+    }
+
+    // --- Chapters Only Format Parser ---
+    // For ToCs like Eliade where:
+    //   16. The Religions of Ancient China                    3
+    //       126. Subsection text that wraps
+    //       and continues 127. Another subsection
+    // Only extracts main chapter entries (e.g., "16.", "17."), ignores indented subsections
+    function parseChaptersOnlyFormat(lines) {
+      const entries = [];
+      
+      // Main chapter pattern: starts with number + dot, ends with page number
+      // e.g., "16. The Religions of Ancient China  3"
+      const mainChapterRe = /^(\d{1,3})\.\s+(.+?)\s{2,}(\d+|[ivxlcdm]+)\s*$/i;
+      
+      // Also match structural entries like "Preface" with page
+      const structuralRe = /^(Preface|Introduction|Conclusion|Bibliography|Index|Appendix|Foreword|Prologue|Epilogue|Acknowledgements?)\s+(\d+|[ivxlcdm]+)\s*$/i;
+      
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const trimmed = line.trim();
+        
+        if (!trimmed) continue;
+        
+        // Skip ToC header
+        if (/^contents$/i.test(trimmed)) continue;
+        
+        // Check for main chapter entry
+        const mainMatch = trimmed.match(mainChapterRe);
+        if (mainMatch) {
+          const chapterNum = mainMatch[1];
+          const title = mainMatch[2].replace(/[._\-]+$/, '').trim();
+          const page = mainMatch[3].toLowerCase();
+          
+          if (title) {
+            entries.push({
+              title: `${chapterNum}. ${title}`,
+              page: page
+            });
+          }
+          continue;
+        }
+        
+        // Check for structural entries
+        const structMatch = trimmed.match(structuralRe);
+        if (structMatch) {
+          const title = structMatch[1];
+          const page = structMatch[2].toLowerCase();
+          entries.push({ title, page });
+          continue;
+        }
+        
+        // Also match entries like "Preface  xiii" (italicized in original)
+        const simpleMatch = trimmed.match(/^([A-Z][a-z]+(?:\s+[A-Za-z]+)*)\s{2,}(\d+|[ivxlcdm]+)\s*$/i);
+        if (simpleMatch) {
+          const potentialTitle = simpleMatch[1].trim();
+          const page = simpleMatch[2].toLowerCase();
+          
+          // Only include if it's short (likely a structural entry like "Preface")
+          // and not an indented subsection description
+          if (potentialTitle.split(/\s+/).length <= 4) {
+            entries.push({ title: potentialTitle, page });
+          }
+        }
+      }
+      
+      return entries;
+    }
+
+    // --- Manual Format Parser ---
+    // Expects tab-separated: Title[TAB]Page
+    // Or recognizes "Title  Page" with multiple spaces
+    function parseManualFormat(lines) {
+      const entries = [];
+      
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        
+        // Try tab-separated first
+        if (trimmed.includes('\t')) {
+          const parts = trimmed.split('\t');
+          if (parts.length >= 2) {
+            const title = parts[0].trim();
+            const page = parts[parts.length - 1].trim().toLowerCase();
+            if (title && /^(\d+|[ivxlcdm]+)$/i.test(page)) {
+              entries.push({ title, page });
+              continue;
+            }
+          }
+        }
+        
+        // Try multiple-space separator
+        const match = trimmed.match(/^(.+?)\s{2,}(\d+|[ivxlcdm]+)\s*$/i);
+        if (match) {
+          const title = match[1].trim();
+          const page = match[2].toLowerCase();
+          if (title) {
+            entries.push({ title, page });
+          }
+        }
+      }
+      
+      return entries;
+    }
+
+    // --- Part + Chapter Format Parser ---
+    // Skips Part headers (Part I, Part One, PART 1, etc.) and extracts chapters
+    // Works with various chapter formats
+    function parsePartChapterFormat(lines) {
+      const entries = [];
+      
+      // Part header patterns to skip
+      const partHeaderRe = /^(Part|Parte|Teil|Partie|Section|Sección)\s+(\d+|[IVXLCDM]+|One|Two|Three|Four|Five|Six|Seven|Eight|Nine|Ten|Uno|Dos|Tres|First|Second|Third)\b/i;
+      
+      // Also skip lines that are JUST the part title (no page number)
+      const partTitleOnlyRe = /^(Part|Parte|Teil|Partie)\s+(\d+|[IVXLCDM]+)[\s:.\-]*$/i;
+      
+      // Chapter patterns
+      const chapterWithNumRe = /^(Chapter|Capítulo|Kapittel|Chapitre|Kapitel)\s+(\d+|[IVXLCDM]+)[\s:.]+(.+?)\s{2,}(\d+|[ivxlcdm]+)\s*$/i;
+      const numberedEntryRe = /^(\d{1,3})\.\s+(.+?)\s{2,}(\d+|[ivxlcdm]+)\s*$/i;
+      const simpleEntryRe = /^(.+?)\s{2,}(\d+|[ivxlcdm]+)\s*$/i;
+      
+      // Structural entries
+      const structuralRe = /^(Preface|Prefacio|Introduction|Introducción|Conclusion|Conclusión|Bibliography|Bibliografía|Index|Índice|Appendix|Apéndice|Foreword|Prólogo|Epilogue|Epílogo|Acknowledgements?|Agradecimientos)\s+(\d+|[ivxlcdm]+)\s*$/i;
+      
+      let skipNextLines = false;
+      
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const trimmed = line.trim();
+        
+        if (!trimmed) continue;
+        
+        // Skip ToC header
+        if (/^(contents|contenido|table of contents|índice)$/i.test(trimmed)) continue;
+        
+        // Skip Part headers
+        if (partHeaderRe.test(trimmed) || partTitleOnlyRe.test(trimmed)) {
+          continue;
+        }
+        
+        // Skip lines that are just part subtitles (no page number, follows a Part header)
+        // e.g., "The Historical Context" after "Part I"
+        if (!/\d+\s*$/.test(trimmed) && !/[ivxlcdm]+\s*$/i.test(trimmed)) {
+          // Check if this might be a subtitle without page - skip it
+          if (trimmed.length < 80 && !trimmed.includes('\t')) {
+            // But don't skip if it looks like a chapter start
+            if (!/^(Chapter|Capítulo|\d{1,3}\.)/i.test(trimmed)) {
+              continue;
+            }
+          }
+        }
+        
+        // Check for "Chapter N: Title  Page" format
+        const chapterMatch = trimmed.match(chapterWithNumRe);
+        if (chapterMatch) {
+          const chapterNum = chapterMatch[2];
+          const title = chapterMatch[3].replace(/[._\-]+$/, '').trim();
+          const page = chapterMatch[4].toLowerCase();
+          
+          if (title) {
+            entries.push({
+              title: `Chapter ${chapterNum}: ${title}`,
+              page: page
+            });
+          }
+          continue;
+        }
+        
+        // Check for numbered entry: "1. Title  Page"
+        const numberedMatch = trimmed.match(numberedEntryRe);
+        if (numberedMatch) {
+          const num = numberedMatch[1];
+          const title = numberedMatch[2].replace(/[._\-]+$/, '').trim();
+          const page = numberedMatch[3].toLowerCase();
+          
+          if (title) {
+            entries.push({
+              title: `${num}. ${title}`,
+              page: page
+            });
+          }
+          continue;
+        }
+        
+        // Check for structural entries
+        const structMatch = trimmed.match(structuralRe);
+        if (structMatch) {
+          const title = structMatch[1];
+          const page = structMatch[2].toLowerCase();
+          entries.push({ title, page });
+          continue;
+        }
+        
+        // Check for simple "Title  Page" format
+        const simpleMatch = trimmed.match(simpleEntryRe);
+        if (simpleMatch) {
+          const title = simpleMatch[1].replace(/[._\-]+$/, '').trim();
+          const page = simpleMatch[2].toLowerCase();
+          
+          // Skip if title looks like a Part header we missed
+          if (partHeaderRe.test(title)) continue;
+          
+          // Skip very short titles that might be noise
+          if (title.length > 2) {
+            entries.push({ title, page });
+          }
+        }
       }
       
       return entries;
@@ -3017,21 +3395,62 @@
       validateAllChapters();
       updateFrontMatterDisplay();
     });
+    
+    $("first-page-number").addEventListener("change", () => {
+      validateAllChapters();
+      updateFrontMatterDisplay();
+    });
+    
+    // Toggle custom first page section visibility
+    $("custom-first-page-toggle").addEventListener("change", () => {
+      const section = $("custom-first-page-section");
+      const toggle = $("custom-first-page-toggle");
+      if (toggle.checked) {
+        section.style.display = "block";
+      } else {
+        section.style.display = "none";
+        $("first-page-number").value = "1";  // Reset to 1 when unchecked
+        validateAllChapters();
+        updateFrontMatterDisplay();
+      }
+    });
+    
+    // Format selector description updates
+    const formatDescriptions = {
+      "auto": "<strong>Auto-detect:</strong> Analyzes the ToC and picks the best parser. Override if results aren't right.",
+      "page-last": "<strong>Traditional:</strong> Title followed by page number (with optional dot leaders). Single line per entry.",
+      "page-first": "<strong>Page-first:</strong> Page number at the start of each line, followed by title.",
+      "multiline": "<strong>Multi-line:</strong> Title may span multiple lines. Page number appears at end of first line. Continuation lines and author follow.",
+      "vertical": "<strong>Vertical/Centered:</strong> Title, author, and page number each on separate lines. Common in centered ToC layouts.",
+      "chapters-only": "<strong>Chapters only:</strong> Extracts numbered chapters (e.g., \"16. Title\") and ignores indented subsections.",
+      "part-chapter": "<strong>Part + Chapter:</strong> Skips Part headers (Part I, Part One, etc.) and extracts chapter entries.",
+      "manual": "<strong>Manual:</strong> Paste pre-formatted entries. Use Tab or multiple spaces between title and page."
+    };
+    
+    $("toc-format-select").addEventListener("change", () => {
+      const format = $("toc-format-select").value;
+      $("format-description").innerHTML = formatDescriptions[format] || formatDescriptions["auto"];
+    });
 
     function updateFrontMatterDisplay() {
-      const pageOffset = safeParseInt(pageOffsetInput.value) || 1;
+      const firstPageNum = safeParseInt($("first-page-number").value) || 1;
+      const contentStartPdf = safeParseInt(pageOffsetInput.value) || 1;
       const frontMatterRow = $("front-matter-row");
       const frontMatterPages = $("front-matter-pages");
       
-      if (pageOffset <= 1) {
+      // Only show front matter if content doesn't start on PDF page 1
+      if (contentStartPdf <= 1) {
         frontMatterRow.classList.add("hidden");
       } else {
         frontMatterRow.classList.remove("hidden");
-        const endPage = pageOffset - 1;
+        const endPage = contentStartPdf - 1;
         
         let text = `PDF pages 1-${endPage}`;
-        if (mainContentStartPdfPage && mainContentStartPdfPage < pageOffset) {
-          text += `. Main Content (Introduction) starts at PDF pg ${mainContentStartPdfPage}.`;
+        if (firstPageNum !== 1) {
+          text += ` (content starts at page ${firstPageNum})`;
+        }
+        if (mainContentStartPdfPage && mainContentStartPdfPage < contentStartPdf) {
+          text += `. Introduction at PDF pg ${mainContentStartPdfPage}.`;
         }
         frontMatterPages.textContent = text;
       }
@@ -3072,11 +3491,13 @@
         const doc = await PDFDocument.load(pdfBytes);
         const context = doc.context;
         const numPages = doc.getPageCount();
-        const pageOffset = safeParseInt(pageOffsetInput.value) || 1;
+        const firstPageNum = safeParseInt($("first-page-number").value) || 1;
+        const contentStartPdf = safeParseInt(pageOffsetInput.value) || 1;
         const outlineItems = [];
         const skippedItems = [];
 
-        if (pageOffset > 1) {
+        // Add Front Matter bookmark if content doesn't start at page 1
+        if (contentStartPdf > 1) {
           outlineItems.push({
             title: "Front Matter",
             pageIndex: 0
@@ -3127,14 +3548,19 @@
           doc.catalog.set(PDFName.of("PageMode"), PDFName.of("UseOutlines"));
         }
 
+        // Set page labels
         const nums = [];
-        nums.push(PDFNumber.of(0));
-        if (pageOffset > 1) {
+        if (contentStartPdf > 1) {
+          // Front matter with roman numerals
+          nums.push(PDFNumber.of(0));
           nums.push(context.obj({ S: PDFName.of("r"), St: PDFNumber.of(1) }));
-          nums.push(PDFNumber.of(pageOffset - 1));
-          nums.push(context.obj({ S: PDFName.of("D"), St: PDFNumber.of(1) }));
+          // Main content starting at firstPageNum
+          nums.push(PDFNumber.of(contentStartPdf - 1));
+          nums.push(context.obj({ S: PDFName.of("D"), St: PDFNumber.of(firstPageNum) }));
         } else {
-          nums.push(context.obj({ S: PDFName.of("D"), St: PDFNumber.of(1) }));
+          // No front matter, start directly with firstPageNum
+          nums.push(PDFNumber.of(0));
+          nums.push(context.obj({ S: PDFName.of("D"), St: PDFNumber.of(firstPageNum) }));
         }
         const labelsDict = context.obj({ Nums: nums });
         doc.catalog.set(PDFName.of("PageLabels"), context.register(labelsDict));
@@ -3154,12 +3580,12 @@
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
 
-        const chapterCount = outlineItems.length - (pageOffset > 1 ? 1 : 0);
+        const chapterCount = outlineItems.length - (contentStartPdf > 1 ? 1 : 0);
         if (skippedItems.length > 0) {
           status.className = "status-box warning";
           status.textContent = "";
           status.appendChild(document.createTextNode(
-            `PDF Generated with ${outlineItems.length} bookmarks (${chapterCount} chapters${pageOffset > 1 ? " + Front Matter" : ""}). `
+            `PDF Generated with ${outlineItems.length} bookmarks (${chapterCount} chapters${contentStartPdf > 1 ? " + Front Matter" : ""}). `
           ));
           const skippedDiv = document.createElement("div");
           skippedDiv.className = "skipped-list";
@@ -3176,7 +3602,7 @@
           status.appendChild(skippedDiv);
         } else {
           status.className = "status-box success";
-          status.textContent = `PDF Generated with ${outlineItems.length} bookmarks (${chapterCount} chapters${pageOffset > 1 ? " + Front Matter" : ""})!`;
+          status.textContent = `PDF Generated with ${outlineItems.length} bookmarks (${chapterCount} chapters${contentStartPdf > 1 ? " + Front Matter" : ""})!`;
         }
       } catch (err) {
         console.error(err);

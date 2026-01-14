@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>PDF Bookmark Creator</title>
 
-  <!-- PDF.js for preview -->
+  <!-- PDF.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-  <!-- PDF-Lib for Client-Side Creation -->
+  <!-- PDF-Lib -->
   <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
 
   <style>
@@ -16,160 +16,111 @@
     h1 { margin-top: 0; }
     .card { background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
     .hidden { display: none !important; }
-    
     .step-header { display: flex; align-items: center; gap: 12px; margin-bottom: 15px; }
-    .step-number { background: var(--primary); color: white; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 0.9rem; flex-shrink: 0; }
+    .step-number { background: var(--primary); color: white; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; flex-shrink: 0; }
     .step-title { font-size: 1.1rem; font-weight: 600; margin: 0; }
-    
     label { display: block; font-weight: 600; margin-bottom: 5px; font-size: 0.9rem; }
     input, button, select { width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border); margin-bottom: 10px; box-sizing: border-box; }
-    
     button { cursor: pointer; font-weight: 600; border: 0; }
     button.primary { background: var(--primary); color: white; }
     button.secondary { background: #f1f5f9; color: #334155; }
     button.success { background: var(--success); color: white; }
-    button:hover { opacity: 0.9; }
-    button:disabled { opacity: 0.5; cursor: not-allowed; }
-
-    .row { display: flex; gap: 10px; align-items: flex-end; }
-    .col { flex: 1; }
-
     .status-box { padding: 10px; border-radius: 6px; font-size: 0.9rem; margin-top: 10px; }
     .status-box.processing { background: #fff7ed; color: #9a3412; border: 1px solid #fed7aa; }
     .status-box.success { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
     .status-box.error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
-
     .chapter-row { display: flex; gap: 8px; align-items: center; background: #fff; border: 1px solid var(--border); padding: 8px; border-radius: 6px; margin-bottom: 8px; }
     .chapter-row.invalid { border-color: #fca5a5; background: #fef2f2; }
-    .drag-handle { cursor: grab; color: #94a3b8; padding: 0 5px; }
-    .ch-title { flex: 1; margin-bottom: 0; }
-    .ch-page { width: 70px !important; margin-bottom: 0; text-align: center; }
-
-    .preview-btn { width: auto !important; font-size: 0.75rem; padding: 6px 12px; margin-bottom: 0; background: #e2e8f0; color: #475569; white-space: nowrap; }
+    .preview-btn { width: auto !important; font-size: 0.75rem; padding: 6px 12px; margin-bottom: 0; background: #e2e8f0; color: #475569; }
     .del-btn { width: auto !important; background: #fee2e2; color: #991b1b; padding: 6px 12px; margin: 0; }
-    
     canvas { border: 1px solid var(--border); max-width: 100%; height: auto; border-radius: 6px; margin-top: 10px; }
-    
     .download-section { text-align: center; padding: 20px; }
     .big-download-btn { font-size: 1.2rem; padding: 16px 32px; background: var(--success); color: white; border-radius: 8px; width: auto; display: inline-block; }
-    .backend-info { font-size: 0.8rem; color: #64748b; text-align: right; margin-bottom: 10px; }
-    .start-over-btn { background: transparent; color: #64748b; border: 1px solid #e5e7eb; font-size: 0.85rem; padding: 8px 16px; width: auto; }
-    .note { font-size: 0.85rem; color: #64748b; margin-top: 5px; }
-    .recommended { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 4px; padding: 2px 6px; font-size: 0.7rem; color: #166534; margin-left: 5px; }
+    .row { display: flex; gap: 10px; } .col { flex: 1; }
   </style>
 </head>
-
 <body>
   <h1>📚 PDF Bookmark Creator</h1>
-  <div class="backend-info">AI Status: <span id="backend-status">Checking...</span></div>
+  <div style="text-align: right; font-size: 0.8rem; color: #64748b;">AI Status: <span id="backend-status">Checking...</span></div>
 
-  <!-- Step 1: Upload -->
   <div class="card" id="step-upload">
     <div class="step-header"><div class="step-number">1</div><h2 class="step-title">Choose Your PDF</h2></div>
-    
     <div style="margin-bottom: 20px;">
-      <label>Paste a Dropbox or direct link <span class="recommended">Recommended</span></label>
+      <label>Paste a Dropbox/Direct Link</label>
       <div style="display: flex; gap: 5px;">
         <input type="text" id="pdf-url" placeholder="https://dropbox.com/s/..." style="margin:0;">
         <button id="load-url-btn" class="primary" style="width: auto; margin:0;">Load PDF</button>
       </div>
     </div>
-    
     <div style="text-align: center; color: #94a3b8; font-weight: bold; margin: 15px 0;">— OR —</div>
-    
-    <div>
-      <label>Upload from your computer</label>
-      <input type="file" id="pdf-file" accept=".pdf" />
-    </div>
-    
+    <input type="file" id="pdf-file" accept=".pdf" />
     <div id="url-error" class="status-box error hidden"></div>
     <div id="file-info" class="status-box success hidden"></div>
   </div>
 
-  <!-- Step 2: Preview & Settings -->
   <div class="card hidden" id="step-preview">
-    <div class="step-header"><div class="step-number">2</div><h2 class="step-title">Review Chapters</h2></div>
-    
-    <div style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap;">
+    <div class="step-header"><div class="step-number">2</div><h2 class="step-title">Review</h2></div>
+    <div style="display: flex; gap: 10px; margin-bottom: 15px;">
       <button id="rescan-front-btn" class="secondary" style="width: auto;">🔄 Re-scan Front</button>
-      <button id="scan-end-btn" class="secondary" style="width: auto;">📖 Scan End of PDF</button>
+      <button id="scan-end-btn" class="secondary" style="width: auto;">📖 Scan End</button>
     </div>
-    
     <div id="ai-status" class="status-box hidden"></div>
     
-    <div id="page-settings" style="margin: 15px 0; padding: 15px; background: #f8fafc; border-radius: 6px;">
+    <div style="margin: 15px 0; padding: 15px; background: #f8fafc; border-radius: 6px;">
       <div class="row">
         <div class="col">
-          <label>PDF page where Page 1 starts</label>
-          <div style="display: flex; gap: 5px; align-items: center;">
-            <input type="number" id="page-offset" value="1" min="1" style="margin:0; width: 80px;">
-            <button id="set-offset-btn" class="secondary" style="width:auto; margin:0; font-size: 0.8rem;">Use Current Preview</button>
+          <label>Offset: PDF Page where Pg 1 starts</label>
+          <div style="display: flex; gap: 5px;">
+            <input type="number" id="page-offset" value="1" min="1" style="width:80px; margin:0;">
+            <button id="set-offset-btn" class="secondary" style="width:auto; margin:0; font-size:0.8rem;">Set Current</button>
           </div>
         </div>
         <div class="col">
-          <label>First Printed Page Number</label>
-          <input type="number" id="first-page-number" value="1" style="margin:0; width: 80px;">
+          <label>First Printed Page #</label>
+          <input type="number" id="first-page-number" value="1" style="width:80px; margin:0;">
         </div>
-        <div class="col hidden">
-           <label>Roman 'i' PDF Page</label>
-           <input type="number" id="roman-offset" value="1" style="margin:0; width: 80px;">
-        </div>
+        <div class="col hidden"><input type="number" id="roman-offset" value="1"></div>
       </div>
     </div>
-    
-    <div class="row" style="margin: 15px 0;">
-      <div class="col">
-        <div style="display: flex; gap: 5px; align-items: center;">
+
+    <div class="row" style="margin-bottom: 10px;">
+        <div class="col" style="display:flex; gap:5px; align-items:center;">
             <button id="prev-page" class="secondary" style="width:40px;">←</button>
             <input type="number" id="preview-page-num" value="1" style="width:70px; margin:0; text-align:center;">
             <span id="total-pages" style="color: #64748b;">/ ?</span>
             <button id="next-page" class="secondary" style="width:40px;">→</button>
         </div>
-      </div>
     </div>
     <canvas id="preview-canvas"></canvas>
   </div>
 
-  <!-- Step 3: Chapters -->
   <div class="card hidden" id="step-chapters">
     <div class="step-header"><div class="step-number">3</div><h2 class="step-title">Chapters</h2></div>
     <div id="chapter-list"></div>
     <button id="add-chapter-btn" class="secondary" style="margin-top: 10px;">+ Add Chapter</button>
   </div>
 
-  <!-- Step 4: Download -->
   <div class="card hidden" id="step-download">
     <div class="download-section">
-      <div class="step-header" style="justify-content: center;">
-        <div class="step-number" style="background: var(--success);">4</div>
-        <h2 class="step-title">Download Your PDF</h2>
-      </div>
-      <div style="margin-bottom: 15px; max-width: 400px; margin-left: auto; margin-right: auto;">
+      <div class="step-header" style="justify-content: center;"><div class="step-number" style="background: var(--success);">4</div><h2 class="step-title">Download</h2></div>
+      <div style="margin-bottom: 15px; max-width: 400px; margin: 0 auto 15px auto;">
         <label style="text-align: left;">Filename:</label>
         <input type="text" id="output-filename" placeholder="bookmarked.pdf">
       </div>
-      <button id="download-btn" class="big-download-btn">⬇️ Download with Bookmarks</button>
+      <button id="download-btn" class="big-download-btn">⬇️ Download PDF</button>
       <div id="download-status" class="status-box hidden" style="margin-top: 15px;"></div>
-      <div style="margin-top: 20px;"><button id="start-over-btn" class="start-over-btn">Start Over</button></div>
+      <div style="margin-top: 20px;"><button onclick="location.reload()" class="start-over-btn">Start Over</button></div>
     </div>
   </div>
 
   <script>
-    // --- CONFIG ---
     const BACKEND_URL = "https://toc-backend-482285058910.us-west3.run.app";
     const WORKER_URL = "https://toc-pdf-proxy.ccrawford.workers.dev/"; 
     pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
-    // --- State ---
-    let pdfDoc = null;
-    let pdfBytes = null; // Used for client-side editing
-    let pdfBlob = null;  // Used for sending to AI
-    let totalPages = 0;
-    let currentPage = 1;
-
+    let pdfDoc = null, pdfBytes = null, pdfBlob = null, totalPages = 0, currentPage = 1;
     const $ = id => document.getElementById(id);
 
-    // --- Backend Check ---
     async function checkBackend() {
         try {
             const res = await fetch(`${BACKEND_URL}/health`);
@@ -180,40 +131,31 @@
         } catch (e) { $("backend-status").textContent = "Offline"; $("backend-status").style.color = "#dc2626"; }
     }
 
-    // --- PDF Loading ---
     async function loadPdf(data, name, source, url = null) {
         if (!data || data.byteLength === 0) {
-            $("url-error").textContent = "Error: File is empty or could not be read.";
+            $("url-error").textContent = "Error: File is empty.";
             $("url-error").classList.remove("hidden");
             return;
         }
-
-        // 1. SAVE COPIES IMMEDIATELY (Fix for detached buffers)
-        // We create a fresh Blob for the AI
-        pdfBlob = new Blob([data], { type: "application/pdf" });
-        // We keep the ArrayBuffer for client-side editing
-        // We slice() it to ensure we have a clean copy that PDF.js won't detach
-        pdfBytes = data.slice(0); 
+        
+        // --- DATA SAFETY ---
+        pdfBytes = data.slice(0); // Copy 1 for Client Edit
+        pdfBlob = new Blob([data], { type: "application/pdf" }); // Copy 2 for AI Upload
 
         try {
-            // 2. Load Preview
-            // Pass a view so the original buffer remains safe
-            const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(data.slice(0)) });
+            const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(data.slice(0)) }); // Copy 3 for Preview
             pdfDoc = await loadingTask.promise;
             totalPages = pdfDoc.numPages;
             
-            // 3. UI Updates
             $("file-info").textContent = `✓ Loaded: ${name} (${totalPages} pages)`;
             $("file-info").classList.remove("hidden");
             $("url-error").classList.add("hidden");
             $("output-filename").value = name.replace(/\.pdf$/i, "") + " (bookmarked).pdf";
+            
             $("step-preview").classList.remove("hidden");
             renderPreview(1);
-            
-            // 4. Run Analysis
             await runAiAnalysis(false, false, source, url);
         } catch (e) {
-            console.error("PDF Load Error:", e);
             $("url-error").textContent = "Invalid PDF: " + e.message;
             $("url-error").classList.remove("hidden");
         }
@@ -230,32 +172,12 @@
         if (skipBookmarks) formData.append("skip_bookmarks", "true");
         if (scanEnd) formData.append("scan_from_end", "true");
 
-        if (source === 'url' && url) {
-            formData.append("pdf_url", url);
-        } else {
-            // Use the safe global blob we created during load
-            if (!pdfBlob || pdfBlob.size === 0) {
-                statusEl.className = "status-box error";
-                statusEl.textContent = "Error: PDF data lost. Please re-select file.";
-                return;
-            }
-            formData.append("pdf_file", pdfBlob, "doc.pdf");
-        }
+        if (source === 'url' && url) { formData.append("pdf_url", url); }
+        else { formData.append("pdf_file", pdfBlob, "doc.pdf"); }
 
         try {
             const res = await fetch(`${BACKEND_URL}/analyze-pdf-ai`, { method: "POST", body: formData });
-            
-            if (!res.ok) {
-                const errText = await res.text();
-                let errMessage = `Backend Error (${res.status})`;
-                try {
-                    const errJson = JSON.parse(errText);
-                    if (errJson.detail) errMessage = errJson.detail;
-                    if (errJson.error) errMessage = errJson.error;
-                } catch(e) {}
-                throw new Error(errMessage);
-            }
-            
+            if (!res.ok) throw new Error("Backend Error: " + res.status);
             const data = await res.json();
             if (data.error) throw new Error(data.error);
 
@@ -268,68 +190,53 @@
 
             statusEl.className = "status-box success";
             statusEl.textContent = `✓ Found ${data.entries?.length || 0} chapters. ${data.notes || ''}`;
-            
             ["step-chapters", "step-download"].forEach(id => $(id).classList.remove("hidden"));
         } catch (e) {
-            console.error("AI Error:", e);
             statusEl.className = "status-box error";
-            statusEl.textContent = "AI Analysis failed: " + e.message;
+            statusEl.textContent = "AI Analysis failed (You can manually add chapters).";
             ["step-chapters", "step-download"].forEach(id => $(id).classList.remove("hidden"));
         }
     }
 
-    // --- Client-Side PDF Creation ---
     async function createPdfClientSide() {
         const statusEl = $("download-status");
         const btn = $("download-btn");
-        
         try {
             btn.disabled = true;
             statusEl.classList.remove("hidden");
             statusEl.className = "status-box processing";
-            statusEl.textContent = "Processing PDF in browser...";
+            statusEl.textContent = "Processing...";
 
             const { PDFDocument } = PDFLib;
-            // Use safe copy
             const pdfDocWrite = await PDFDocument.load(pdfBytes);
-            
-            const rows = document.querySelectorAll(".chapter-row");
             const contentStart = parseInt($("page-offset").value) || 1;
             const firstPageNum = parseInt($("first-page-number").value) || 1;
             const romanStart = parseInt($("roman-offset").value) || 1;
-            const docTotal = pdfDocWrite.getPageCount();
-
+            
             const outlines = [];
-            let invalidCount = 0;
-
-            rows.forEach(row => {
+            document.querySelectorAll(".chapter-row").forEach(row => {
                 const title = row.querySelector(".ch-title").value.trim();
                 const pageStr = row.querySelector(".ch-page").value.trim().toLowerCase();
                 if (!title) return;
 
-                let pdfPageIndex = -1;
-
-                if (pageStr.startsWith("pdf:")) {
-                    pdfPageIndex = parseInt(pageStr.split(":")[1]) - 1;
-                } else if (/^[ivxlcdm]+$/.test(pageStr)) {
+                let idx = -1;
+                if (pageStr.startsWith("pdf:")) idx = parseInt(pageStr.split(":")[1]) - 1;
+                else if (/^[ivxlcdm]+$/.test(pageStr)) {
                     const val = romanToInt(pageStr);
-                    if (val) pdfPageIndex = (val - 1) + (romanStart - 1);
+                    if (val) idx = (val - 1) + (romanStart - 1);
                 } else {
                     const pNum = parseInt(pageStr);
-                    if (!isNaN(pNum)) {
-                        pdfPageIndex = (pNum - firstPageNum) + (contentStart - 1);
-                    }
+                    if (!isNaN(pNum)) idx = (pNum - firstPageNum) + (contentStart - 1);
                 }
 
-                if (pdfPageIndex >= 0 && pdfPageIndex < docTotal) {
-                    outlines.push({ title, pageIdx: pdfPageIndex });
-                } else {
-                    invalidCount++;
+                if (idx >= 0 && idx < pdfDocWrite.getPageCount()) {
+                    outlines.push({ title, pageIdx: idx });
                 }
             });
 
             if (outlines.length === 0) throw new Error("No valid chapters found.");
 
+            // --- BUILD BOOKMARKS ---
             const context = pdfDocWrite.context;
             const outlineRef = context.nextRef();
             const outlineItems = [];
@@ -363,31 +270,30 @@
             });
             context.assign(outlineRef, outlineRoot);
             pdfDocWrite.catalog.set(PDFLib.PDFName.of('Outlines'), outlineRef);
+            
+            // FORCE VIEWER TO SHOW BOOKMARKS
+            pdfDocWrite.catalog.set(PDFLib.PDFName.of('PageMode'), PDFLib.PDFName.of('UseOutlines'));
 
             const pdfBytesOut = await pdfDocWrite.save();
             const blob = new Blob([pdfBytesOut], { type: "application/pdf" });
             const link = document.createElement("a");
             link.href = URL.createObjectURL(blob);
-            link.download = $("output-filename").value || "bookmarked.pdf";
+            link.download = $("output-filename").value;
             link.click();
 
             statusEl.className = "status-box success";
-            statusEl.textContent = `✓ Created PDF with ${outlines.length} bookmarks!`;
-
+            statusEl.textContent = `✓ Download Started! (${outlines.length} bookmarks)`;
         } catch (e) {
             console.error(e);
             statusEl.className = "status-box error";
             statusEl.textContent = "Error: " + e.message;
-        } finally {
-            btn.disabled = false;
-        }
+        } finally { btn.disabled = false; }
     }
 
     function renderPreview(num) {
         currentPage = Math.max(1, Math.min(totalPages, num));
         $("preview-page-num").value = currentPage;
         $("total-pages").textContent = `/ ${totalPages}`;
-        
         pdfDoc.getPage(currentPage).then(page => {
             const viewport = page.getViewport({ scale: 1.2 });
             const canvas = $("preview-canvas");
@@ -403,11 +309,10 @@
         div.className = "chapter-row";
         div.innerHTML = `
             <span class="drag-handle">☰</span>
-            <input type="text" class="ch-title" value="${escapeHtml(title)}" placeholder="Title">
-            <input type="text" class="ch-page" value="${escapeHtml(String(page))}" placeholder="Pg">
+            <input type="text" class="ch-title" value="${title.replace(/"/g, '&quot;')}" placeholder="Title">
+            <input type="text" class="ch-page" value="${page}" placeholder="Pg">
             <button class="preview-btn">Preview</button>
-            <button class="del-btn">×</button>
-        `;
+            <button class="del-btn">×</button>`;
         div.querySelector(".del-btn").onclick = () => div.remove();
         div.querySelector(".preview-btn").onclick = () => previewRow(div);
         $("chapter-list").appendChild(div);
@@ -416,21 +321,18 @@
     function previewRow(row) {
         const pageStr = row.querySelector(".ch-page").value.trim().toLowerCase();
         let target = 1;
-        
         const contentStart = parseInt($("page-offset").value) || 1;
         const firstPageNum = parseInt($("first-page-number").value) || 1;
         const romanStart = parseInt($("roman-offset").value) || 1;
 
-        if (pageStr.startsWith("pdf:")) {
-            target = parseInt(pageStr.split(":")[1]);
-        } else if (/^[ivxlcdm]+$/.test(pageStr)) {
+        if (pageStr.startsWith("pdf:")) target = parseInt(pageStr.split(":")[1]);
+        else if (/^[ivxlcdm]+$/.test(pageStr)) {
             const val = romanToInt(pageStr);
             if (val) target = (val - 1) + romanStart;
         } else {
             const pNum = parseInt(pageStr);
             if (!isNaN(pNum)) target = (pNum - firstPageNum) + contentStart;
         }
-        
         if (target > 0 && target <= totalPages) {
             renderPreview(target);
             $("preview-canvas").scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -448,26 +350,20 @@
         return res;
     }
 
-    function escapeHtml(str) { return str ? String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;") : ""; }
-    function startOver() { location.reload(); }
-
     document.addEventListener("DOMContentLoaded", () => {
         checkBackend();
         
         $("pdf-file").addEventListener('change', async function(e) {
             const file = e.target.files[0];
             if (!file) return;
-            
             try {
                 $("url-error").classList.add("hidden");
-                $("file-info").textContent = "Loading file...";
+                $("file-info").textContent = "Reading file...";
                 $("file-info").classList.remove("hidden");
-
                 const buffer = await file.arrayBuffer();
                 loadPdf(buffer, file.name, 'file');
             } catch (err) {
-                console.error("File Read Error:", err);
-                $("url-error").textContent = "Error reading file: " + err.message;
+                $("url-error").textContent = "Read Error: " + err.message;
                 $("url-error").classList.remove("hidden");
             }
         });
@@ -479,9 +375,9 @@
             $("file-info").classList.remove("hidden");
             try {
                 const res = await fetch(`${WORKER_URL}?url=${encodeURIComponent(url)}`);
-                if (!res.ok) throw new Error("Failed to download");
+                if (!res.ok) throw new Error("Download Failed");
                 const buf = await res.arrayBuffer();
-                let name = "document.pdf";
+                let name = "doc.pdf";
                 try { name = decodeURIComponent(new URL(url).pathname.split("/").pop()); } catch(e){}
                 loadPdf(buf, name, 'url', url);
             } catch (e) {
@@ -500,7 +396,6 @@
         
         $("download-btn").onclick = createPdfClientSide;
         $("add-chapter-btn").onclick = () => addChapterRow();
-        $("start-over-btn").onclick = startOver;
     });
   </script>
 </body>

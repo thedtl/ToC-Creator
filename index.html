@@ -187,9 +187,11 @@
             return;
         }
 
+        // Store raw bytes for client-side processing
         pdfBytes = data;
         
         try {
+            // Load PDF for Preview
             const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(data) });
             pdfDoc = await loadingTask.promise;
             totalPages = pdfDoc.numPages;
@@ -226,6 +228,12 @@
         if (source === 'url' && url) {
             formData.append("pdf_url", url);
         } else {
+            // Ensure pdfBytes exists
+            if (!pdfBytes) {
+                statusEl.className = "status-box error";
+                statusEl.textContent = "Error: PDF data not found.";
+                return;
+            }
             const blob = new Blob([pdfBytes], { type: "application/pdf" });
             formData.append("pdf_file", blob, "doc.pdf");
         }
@@ -233,12 +241,10 @@
         try {
             const res = await fetch(`${BACKEND_URL}/analyze-pdf-ai`, { method: "POST", body: formData });
             
-            // ERROR HANDLING: If the backend fails, parse the message
             if (!res.ok) {
                 const errText = await res.text();
                 let errMessage = `Backend Error (${res.status})`;
                 try {
-                    // Try to parse JSON error message
                     const errJson = JSON.parse(errText);
                     if (errJson.detail) errMessage = errJson.detail;
                     if (errJson.error) errMessage = errJson.error;
@@ -443,17 +449,23 @@
     document.addEventListener("DOMContentLoaded", () => {
         checkBackend();
         
-        // --- FIXED FILE HANDLER (SINGLE SOURCE OF TRUTH) ---
+        // --- ONLY ONE EVENT LISTENER FOR FILE UPLOAD ---
         $("pdf-file").addEventListener('change', async function(e) {
             const file = e.target.files[0];
             if (!file) return;
             
             try {
+                // Clear errors
+                $("url-error").classList.add("hidden");
+                $("file-info").textContent = "Loading file...";
+                $("file-info").classList.remove("hidden");
+
                 const buffer = await file.arrayBuffer();
                 loadPdf(buffer, file.name, 'file');
             } catch (err) {
                 console.error("File Read Error:", err);
-                alert("Error reading file: " + err.message);
+                $("url-error").textContent = "Error reading file: " + err.message;
+                $("url-error").classList.remove("hidden");
             }
         });
 
